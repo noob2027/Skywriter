@@ -108,6 +108,43 @@ The documents in this starter package are the implementation source of truth. Be
 - [`AGENTS.md`](AGENTS.md): binding repository rules for Codex and human contributors
 - [`codex-tasks/README.md`](codex-tasks/README.md): launch order and bounded handoffs
 
+## Windows developer setup
+
+Task 001 supports CPython 3.11 through 3.14 on 64-bit Windows. The exact lock uses
+PySide6 Essentials: the official Qt for Python Widgets/Core subset needed by the shell,
+without adding Qt WebEngine before its bounded task.
+
+From a clean PowerShell checkout:
+
+```powershell
+python -m venv .venv
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+python -m pip install --requirement requirements.lock
+python -m pip install --no-build-isolation --no-deps --editable .
+```
+
+Run the desktop shell:
+
+```powershell
+python -m skywriter
+```
+
+Run the same checks as CI:
+
+```powershell
+python -m ruff format --check .
+python -m ruff check .
+python -m mypy
+python -m pytest
+```
+
+To apply formatting during development, use `python -m ruff format .` and then rerun
+the checks. If PowerShell blocks virtual-environment activation, keep the scoped
+`Set-ExecutionPolicy` command above or invoke `.\.venv\Scripts\python.exe` directly.
+If Qt cannot initialize a display in an automated session, set
+`$env:QT_QPA_PLATFORM = "offscreen"`; do not set it for normal interactive use.
+
 ## Authoritative implementation references
 
 - [MAVLink Mission Protocol](https://mavlink.io/en/services/mission.html)

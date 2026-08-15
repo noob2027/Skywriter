@@ -21,10 +21,14 @@ coverage/
 .turbo/
 .eslintcache
 __pycache__/
+.venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 *.py[cod]
+
+# Python packaging output
+*.egg-info/
 
 # Editors and operating systems
 .DS_Store
