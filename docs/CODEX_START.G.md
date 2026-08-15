@@ -4,7 +4,7 @@
 
 - Local repository matching `noob2027/Skywriter`
 - `main` branch tracking `origin/main`
-- Existing two-commit GitHub history and Teensy 4.0 connection trial
+- Existing GitHub history preserved locally
 - Repository-local Git author identity based on the verified GitHub history
 - Connected GitHub app with read/write/admin repository access
 - Repository-level Codex instructions
@@ -19,9 +19,6 @@
    recommend one from the requirements.
 4. Identify any designs, assets, APIs, credentials, or existing code that must
    be supplied. Put real secrets only in ignored local environment files.
-5. Decide whether the Teensy Hello World trial is part of SKYWriter iteration
-   one or only a completed connection test.
-
 ## Publishing note
 
 Codex can read and write `noob2027/Skywriter` through the connected GitHub app.

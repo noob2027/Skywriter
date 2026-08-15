@@ -10,8 +10,6 @@ Last updated: 2026-08-15
 - Delivery milestone: iteration one
 - Development workflow: private `noob2027/Skywriter` GitHub repository with a
   matching local `main` branch, prepared for Codex-assisted work
-- Existing baseline: a Teensy 4.0 Hello World sketch used to validate GitHub
-  write access; its relationship to the product remains to be confirmed
 
 No additional product requirements were available in the workspace when this
 repository was initialized. Complete the sections below from the earlier

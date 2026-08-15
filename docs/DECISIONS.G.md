@@ -16,7 +16,7 @@ replacement decision.
 ## D-002 — Preserve the GitHub connection trial
 
 - Date: 2026-08-15
-- Status: Accepted
+- Status: Superseded by D-004 on 2026-08-15
 - Decision: Keep the existing `README.md` and `Teensy40_HelloWorld/` trial
   unchanged while preparing iteration one.
 - Reason: Those files verify the GitHub connector and form the current remote
@@ -30,6 +30,18 @@ replacement decision.
   prior SKYWriter discussion is transferred into the iteration-one brief.
 - Reason: Platform, core flow, integrations, and acceptance criteria are not
   present in the current workspace; guessing would create avoidable rework.
+
+## D-004 — Remove the GitHub connection trial
+
+- Date: 2026-08-15
+- Status: Accepted
+- Decision: Delete `Teensy40_HelloWorld/` from the current project and keep
+  `README.md` unchanged.
+- Reason: The repository connection test is complete, and the project owner
+  confirmed that the Hello World trial is no longer needed.
+- Consequence: The trial remains recoverable from Git history but is no longer
+  part of the iteration-one working tree.
+- Supersedes: D-002
 
 ## Decision template
 
