@@ -1,0 +1,200 @@
+# SKYWriter architecture
+
+## 1. Design drivers
+
+SKYWriter is a constrained ground-control application above stock ArduCopter. Its architecture is shaped by five rules: preserve flight-controller authority, make beginner actions impossible to confuse with raw commands, compile deterministically through a closed whitelist, prove mission storage through readback, and keep all vehicle I/O behind explicit state gates.
+
+The exact ArduCopter release is intentionally not guessed in this package. Before MAVLink work, a compatibility PR must pin an approved stock version and record the firmware version/hash, MAVLink dialect/version, SITL artifact, board families tested, and any documented mission-item normalization.
+
+## 2. Layered design
+
+```text
+PySide6 screens + Leaflet map
+             |
+       typed UI intents
+             v
+Application state / use-case services
+       |                     |
+       v                     v
+Mission domain         Vehicle gateway interfaces
+ model/validator/       mission protocol, telemetry,
+ compiler/serializer   command acknowledgments
+       |                     |
+       v                     v
+versioned JSON       pymavlink adapter -> USB / SiK -> stock ArduCopter
+```
+
+Dependencies point inward: UI and adapters depend on application/domain contracts. Domain code never imports Qt, WebEngine, Leaflet, serial libraries, or `pymavlink`.
+
+## 3. Proposed source tree
+
+```text
+src/skywriter/
+├── main.py
+├── config.py
+├── domain/
+│   ├── mission.py
+│   ├── validation.py
+│   ├── compiled.py
+│   └── policy.py
+├── application/
+│   ├── state.py
+│   ├── mission_service.py
+│   ├── readiness.py
+│   └── ports.py
+├── infrastructure/
+│   ├── json_repository.py
+│   └── mavlink/
+│       ├── connection.py
+│       ├── mission_protocol.py
+│       ├── verification.py
+│       ├── telemetry.py
+│       └── commands.py
+└── ui/
+    ├── main_window.py
+    ├── mission_builder.py
+    ├── preflight.py
+    ├── flight.py
+    └── map/
+        ├── bridge.py
+        └── static/{map.html,map.js,map.css}
+tests/
+├── unit/
+├── integration/
+├── sitl/
+└── fixtures/
+```
+
+## 4. Domain model
+
+Illustrative typed shapes (names are normative; exact Python syntax is not):
+
+```text
+GeoPoint(latitude_deg, longitude_deg)
+MissionSettings(takeoff_altitude_m, cruise_speed_m_s,
+                obstacle_warning_acknowledged)
+ProceedAction(point, altitude_m)
+HoldAction(point, altitude_m, hold_time_s)
+CircleAction(point, altitude_m, radius_m, turns=1,
+             direction=CLOCKWISE)
+LandAction(point, approach_altitude_m)
+Mission(schema_version, id, settings, actions)
+```
+
+Takeoff is represented by `MissionSettings`, not by a clickable post-takeoff point. The flight controller's established home/launch location supplies Takeoff coordinates as required by the pinned compatibility behavior. `actions` contains zero or more Proceed/Hold/Circle and an optional final Land while drafting.
+
+Raw MAVLink command IDs, frames, parameter slots, target IDs, ports, and verification flags do not belong in the domain mission.
+
+### Structural validator
+
+The pure validator returns typed findings with path/code/message/severity. It checks ordering, cardinality, required values, coordinate ranges, finite numeric inputs, positive cruise speed/hold time/radius, warning acknowledgment, and completed-mission Land. Draft validation may permit missing Land; compile/upload validation may not.
+
+### Operational policy seam
+
+`MissionPolicy.evaluate(mission, context) -> findings` is an application port. `NoOperationalPolicy` is the prototype implementation and produces no geofence or envelope approval. Future profiles may add limits through dedicated reviewed work; structural validation remains separate.
+
+## 5. Compilation boundary
+
+`MissionCompiler.compile(valid_complete_mission) -> CompiledMission` is pure and deterministic. `CompiledMission` contains immutable integer-coordinate items and no transport state.
+
+Default mission frame is `MAV_FRAME_GLOBAL_RELATIVE_ALT_INT`; all displayed/stored altitudes mean meters **Above Home**. Latitude/longitude convert once at this boundary to signed integers in degrees × 10^7.
+
+| Order/source | Command | Required semantics |
+|---|---|---|
+| 0 / settings | `MAV_CMD_NAV_TAKEOFF` | requested relative takeoff altitude; pinned/default unused parameters |
+| 1 / settings | `MAV_CMD_DO_CHANGE_SPEED` | ground-speed type; mission cruise speed m/s; no parameter write |
+| Proceed | `MAV_CMD_NAV_WAYPOINT` | clicked coordinates and relative altitude; zero/default delay/radii/yaw |
+| Hold | `MAV_CMD_NAV_LOITER_TIME` | clicked coordinates/altitude; `param1 = hold_time_s`; other behavior pinned and tested |
+| Circle | `MAV_CMD_NAV_LOITER_TURNS` | clicked center/altitude; `param1 = 1`; `param3 = positive radius_m` for clockwise behavior; draw equivalent geometry |
+| Land approach | `MAV_CMD_NAV_WAYPOINT` | selected landing coordinates at approach altitude |
+| Land | `MAV_CMD_NAV_LAND` | same selected coordinates; native landing semantics, with unused/default fields pinned and tested |
+
+The compatibility suite must assert every frame, parameter, coordinate, altitude, `current`, `autocontinue`, and `mission_type` value against the pinned ArduCopter/SITL target. Any required deviation from this table needs a dedicated architecture/compatibility PR. Compiler construction rejects command values outside the whitelist by type, not only by a final runtime check.
+
+## 6. Application state
+
+Use explicit immutable snapshots and reducer/use-case transitions. Key orthogonal state:
+
+```text
+Mission: EMPTY | DRAFT | VALID | COMPILED | UPLOAD_PENDING |
+         UPLOAD_ACKED | READBACK_PENDING | VERIFIED | MISMATCH
+Link:    DISCONNECTED | USB_CONNECTING | USB_READY |
+         SIK_CONNECTING | SIK_READY | STALE | ERROR
+Vehicle: UNKNOWN | DISARMED | ARM_PENDING | ARMED |
+         AUTO_RUNNING | PAUSED | LANDING
+Command: IDLE | PENDING(kind, token, deadline) | ACCEPTED | REJECTED | TIMED_OUT
+```
+
+Verification is tied to a digest of the canonical compiled mission, target identity, mission type, and readback. Editing the mission, changing target, detecting a newer onboard mission, or losing transaction integrity clears it. Reconnection alone never restores it.
+
+Readiness is derived, never toggled directly by a widget. Example predicates:
+
+```text
+can_upload = usb_ready && disarmed && compiled && replacement_confirmed
+can_arm = sik_ready && same_target && verified && disarmed && preflight_reviewed
+can_start = sik_ready && verified && armed && command_idle
+```
+
+These application gates are necessary but not sufficient; native ArduCopter may reject commands.
+
+## 7. MAVLink gateway
+
+### Connection identity
+
+The connection service discovers heartbeat, records target system/component, vehicle/autopilot type, firmware identity when available, transport kind, and last-seen time. USB and SiK sessions must reconcile to the same configured identity. Ambiguity or multiple candidate vehicles requires operator selection; do not take the first heartbeat silently.
+
+### Mission upload state machine
+
+```text
+IDLE -> SEND_COUNT -> WAIT_REQUEST(seq)
+     -> SEND_ITEM_INT(seq) -> ... -> WAIT_ACK
+     -> ACKED -> DOWNLOAD_FOR_VERIFY -> VERIFIED | MISMATCH
+```
+
+Handle requested sequence explicitly. Bound total transaction time and per-message retries. Ignore or log unrelated traffic; fail on wrong target/mission type, terminal negative acknowledgment, exhausted retries, disconnection, unexpected armed state, or protocol inconsistency. A retry restarts from a known state and first re-reads the onboard mission.
+
+### Readback verification
+
+Request the complete mission list and reconstruct every `MISSION_ITEM_INT`. Compare count and every semantic field. A compatibility-specific normalizer may account only for documented, tested representation changes made by the pinned flight controller (for example canonical float precision or home-item handling); it must preserve mission meaning and produce an audit record. Tolerances must derive from wire representation, not broad “close enough” values.
+
+### Telemetry
+
+Telemetry parsing produces typed snapshots for heartbeat/mode/arming, global position, relative altitude, ground speed, battery, home, mission current/reached, extended system state, GPS/EKF indicators when available, and `STATUSTEXT`. Presentation is read-only. Freshness is measured per signal and a stale heartbeat closes every command gate.
+
+### Commands
+
+Commands are separate from the mission compiler. Each command service method has preconditions and waits for the matching target/command `COMMAND_ACK`:
+
+- request native pre-arm checks;
+- normal arm (force flag/value prohibited);
+- enter/start native AUTO mission through the pinned, tested sequence;
+- pause/resume with `MAV_CMD_DO_PAUSE_CONTINUE` where supported by the pinned target;
+- request native Land Here Now at current location with deliberate UI confirmation.
+
+No generic `send_command(command_id, params)` API may be exposed to UI/application code.
+
+## 8. Map isolation
+
+Leaflet runs inside Qt WebEngine and communicates through a narrow versioned bridge. JS may emit only map intents (clicked, point dragged, selected, viewport changed). Python sends only sanitized render models (markers, polylines, circles, labels, vehicle pose). The web view has no reference to the MAVLink gateway or command service and cannot navigate to arbitrary origins in production packaging.
+
+Circle geometry uses the same normalized radius as the domain/compiler. The UI shows a center marker, perimeter, center-to-edge radius line, numeric radius label, and clockwise cue. Rendering tests verify pending/confirmed/selected/complete states.
+
+## 9. Persistence
+
+JSON includes `schema_version`, stable mission ID, settings, and discriminated action objects. It excludes ports, target IDs, connection state, compiled bytes, acknowledgment history, and trusted verification. Writes are atomic (temporary file plus replace); loads are parsed, migrated only through explicit migrations, structurally validated, and recompiled.
+
+## 10. Concurrency and failure handling
+
+Serial reads and protocol transactions run off the Qt UI thread. Thread/async boundaries send immutable events into the application reducer. There is one mission transaction and one vehicle command in flight at a time. Shutdown cancels work, closes transport, and never sends a navigation or disarm command as cleanup.
+
+Errors are classified as validation, compatibility, identity, connection, protocol, acknowledgment, verification, or internal. User messages state what is known (“Upload acknowledged; readback mismatched item 4”) rather than collapsing states into “Failed” or “Ready.” Logs retain technical detail and correlation IDs.
+
+## 11. Test architecture
+
+- **Unit:** model invariants, JSON round trips, compiler exact sequences, state reducer/gates, geometry, normalization.
+- **Protocol simulation:** scripted fake transport/clock for request order, duplicate/lost messages, retries, wrong target, negative ACK, stale link, and cancellation.
+- **UI:** mission flow, pending-point behavior, Land persistence/closure, field validation, command enablement, bridge schema.
+- **SITL:** upload/readback, each action, mixed mission execution, command ACKs, native pre-arm rejection, pause/resume, Land, and reconnect identity.
+- **Hardware:** USB props-off, Mission Planner independent readback, then SiK props-off; staged flight only under a separately approved procedure.
+
+Every supported ArduCopter pin has a compatibility fixture and SITL evidence. Changing the pin is a recertification event, not a dependency bump.
