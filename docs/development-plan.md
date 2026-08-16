@@ -2,7 +2,7 @@
 
 ## 1. Delivery principles
 
-- One repository: `305skylab-mission-console`.
+- One repository: `Skywriter`.
 - `main` is protected; Codex never commits directly to it.
 - One short-lived branch and pull request per bounded handoff; squash merge after CI and human review.
 - Foundation is serial. After shared contracts are accepted, at most three small non-overlapping tasks run in parallel.

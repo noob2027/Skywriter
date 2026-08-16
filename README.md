@@ -83,7 +83,7 @@ Any mission edit invalidates compilation and verification. Any identity mismatch
 ## Repository target
 
 ```text
-305skylab-mission-console/
+Skywriter/
 ├── README.md
 ├── AGENTS.md
 ├── docs/
