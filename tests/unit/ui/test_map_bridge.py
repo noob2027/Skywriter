@@ -19,6 +19,7 @@ from skywriter.ui.map.bridge import (
     RenderAction,
     RenderActionKind,
     RenderModel,
+    TileProvider,
     ViewportChanged,
     encode_render_message,
     parse_map_intent,
@@ -71,10 +72,16 @@ def test_bridge_parses_only_typed_map_intents(payload: dict[str, object], expect
     [
         "{",
         '{"schema_version":1,"schema_version":1}',
+        '{"schema_version":1,"type":"map_clicked","point":'
+        '{"latitude_deg":1,"latitude_deg":2,"longitude_deg":0}}',
         '{"schema_version":1,"type":"map_clicked","point":{"latitude_deg":NaN,"longitude_deg":0}}',
         json.dumps({"schema_version": 2, "type": "point_selected", "index": 0}),
         json.dumps({"schema_version": 1, "type": "point_selected", "index": 0, "extra": 1}),
         json.dumps({"schema_version": 1, "type": "unknown", "index": 0}),
+        json.dumps({"schema_version": 1, "type": "point_selected", "index": -1}),
+        json.dumps({"schema_version": 1, "type": "point_selected", "index": 1.5}),
+        json.dumps({"schema_version": 1, "type": "point_selected", "index": "1"}),
+        json.dumps({"schema_version": 1, "type": "map_clicked", "point": True}),
         json.dumps(
             {
                 "schema_version": 1,
@@ -85,8 +92,23 @@ def test_bridge_parses_only_typed_map_intents(payload: dict[str, object], expect
         json.dumps(
             {
                 "schema_version": 1,
+                "type": "map_clicked",
+                "point": {"latitude_deg": 0, "longitude_deg": 181},
+            }
+        ),
+        json.dumps(
+            {
+                "schema_version": 1,
                 "type": "viewport_changed",
                 "south_west": {"latitude_deg": 40, "longitude_deg": -78},
+                "north_east": {"latitude_deg": 39, "longitude_deg": -76},
+            }
+        ),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "type": "viewport_changed",
+                "south_west": {"latitude_deg": 37, "longitude_deg": -75},
                 "north_east": {"latitude_deg": 39, "longitude_deg": -76},
             }
         ),
@@ -132,6 +154,8 @@ def test_render_message_contains_only_sanitized_action_geometry() -> None:
                 ),
             ),
             pending_point=GeoPoint(38.2, -77.2),
+            tile_provider=TileProvider.OPENSTREETMAP,
+            drag_threshold_px=12,
         )
     )
     parsed = json.loads(message)
@@ -140,7 +164,16 @@ def test_render_message_contains_only_sanitized_action_geometry() -> None:
     assert parsed["type"] == "render_mission"
     assert parsed["actions"][1]["turns"] == 1
     assert parsed["actions"][1]["direction"] == "clockwise"
-    assert set(parsed) == {"schema_version", "type", "actions", "pending_point"}
+    assert parsed["tile_provider"] == "openstreetmap"
+    assert parsed["drag_threshold_px"] == 12
+    assert set(parsed) == {
+        "schema_version",
+        "type",
+        "actions",
+        "pending_point",
+        "tile_provider",
+        "drag_threshold_px",
+    }
 
 
 def test_render_message_rejects_action_specific_field_mismatches() -> None:
@@ -158,6 +191,24 @@ def test_render_message_rejects_action_specific_field_mismatches() -> None:
                 )
             )
         )
+
+
+def test_render_message_rejects_invalid_sequence_and_drag_threshold() -> None:
+    with pytest.raises(MapBridgeError, match="contiguous"):
+        encode_render_message(
+            RenderModel(
+                actions=(
+                    RenderAction(
+                        2,
+                        RenderActionKind.PROCEED,
+                        GeoPoint(1.0, 2.0),
+                        3.0,
+                    ),
+                )
+            )
+        )
+    with pytest.raises(MapBridgeError, match="positive"):
+        encode_render_message(RenderModel(drag_threshold_px=0))
     with pytest.raises(MapBridgeError, match="only valid"):
         encode_render_message(
             RenderModel(
@@ -179,16 +230,27 @@ def test_map_assets_are_local_versioned_and_have_no_vehicle_service_imports() ->
     html = (static_root / "map.html").read_text(encoding="utf-8")
     script = (static_root / "map.js").read_text(encoding="utf-8")
     bridge_source = (SOURCE_ROOT / "map" / "bridge.py").read_text(encoding="utf-8")
+    host_source = (SOURCE_ROOT / "map" / "host.py").read_text(encoding="utf-8")
+    vendor_root = static_root / "vendor" / "leaflet-1.9.4"
     imports = {
         node.module
         for node in ast.walk(ast.parse(bridge_source))
         if isinstance(node, ast.ImportFrom) and node.module is not None
     }
 
+    assert 'src="vendor/leaflet-1.9.4/leaflet.js"' in html
+    assert 'href="vendor/leaflet-1.9.4/leaflet.css"' in html
     assert 'src="map.js"' in html
     assert "SCHEMA_VERSION = 1" in script
-    assert "http://" not in html + script
-    assert "https://" not in html + script
+    assert '<script src="http' not in html
+    assert "https://tile.openstreetmap.org/{z}/{x}/{y}.png" in script
+    assert "gmap" not in (html + script + host_source).lower()
+    assert "missionplanner" not in (html + script + host_source).lower()
+    assert (vendor_root / "leaflet.js").is_file()
+    assert (vendor_root / "leaflet.css").is_file()
+    assert (vendor_root / "LICENSE.txt").is_file()
+    assert "QWebEngineView" in host_source
+    assert "setWebChannel" in host_source
     assert "skywriter.application" not in imports
     assert "skywriter.infrastructure" not in imports
 

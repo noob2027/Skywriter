@@ -11,11 +11,12 @@ from skywriter.ui.map.bridge import (
     RenderAction,
     RenderActionKind,
     RenderModel,
+    TileProvider,
     ViewportChanged,
     encode_render_message,
     parse_map_intent,
 )
-from skywriter.ui.map.canvas import MissionMapCanvas
+from skywriter.ui.map.host import MissionMapHost
 
 __all__ = [
     "BRIDGE_SCHEMA_VERSION",
@@ -23,12 +24,13 @@ __all__ = [
     "MapBridgeError",
     "MapClicked",
     "MapIntent",
-    "MissionMapCanvas",
+    "MissionMapHost",
     "PointDragged",
     "PointSelected",
     "RenderAction",
     "RenderActionKind",
     "RenderModel",
+    "TileProvider",
     "ViewportChanged",
     "encode_render_message",
     "parse_map_intent",

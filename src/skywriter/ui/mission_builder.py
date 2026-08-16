@@ -32,7 +32,7 @@ from skywriter.domain.mission import (
     MissionSettings,
     ProceedAction,
 )
-from skywriter.ui.map import MissionMapCanvas
+from skywriter.ui.map import MissionMapHost, TileProvider
 
 OBSTACLE_WARNING_TEXT = (
     "Verify clearance from power lines, rooftops, trees, cables, poles, and other "
@@ -149,7 +149,7 @@ class MissionBuilderWidget(QWidget):
         return self._pending_point
 
     @property
-    def map_canvas(self) -> MissionMapCanvas:
+    def map_canvas(self) -> MissionMapHost:
         return self._map
 
     def render_snapshot(self, snapshot: MissionBuilderSnapshot) -> None:
@@ -210,8 +210,28 @@ class MissionBuilderWidget(QWidget):
 
         content = QHBoxLayout()
         content.setSpacing(18)
-        self._map = MissionMapCanvas()
-        content.addWidget(self._map, 3)
+        map_panel = QFrame()
+        map_panel.setObjectName("mapPanel")
+        map_layout = QVBoxLayout(map_panel)
+        map_layout.setContentsMargins(0, 0, 0, 0)
+        map_layout.setSpacing(8)
+        map_toolbar = QHBoxLayout()
+        provider_label = QLabel("Basemap")
+        provider_label.setObjectName("mapProviderLabel")
+        map_toolbar.addWidget(provider_label)
+        self._map_provider = QComboBox()
+        self._map_provider.setObjectName("mapProviderInput")
+        self._map_provider.setAccessibleName("Basemap provider")
+        self._map_provider.addItem("No basemap (offline)", TileProvider.OFFLINE.value)
+        self._map_provider.addItem(
+            "OpenStreetMap Standard (network)", TileProvider.OPENSTREETMAP.value
+        )
+        map_toolbar.addWidget(self._map_provider)
+        map_toolbar.addStretch()
+        map_layout.addLayout(map_toolbar)
+        self._map = MissionMapHost()
+        map_layout.addWidget(self._map, 1)
+        content.addWidget(map_panel, 3)
 
         side_scroll = QScrollArea()
         side_scroll.setObjectName("missionSidebarScroll")
@@ -294,7 +314,7 @@ class MissionBuilderWidget(QWidget):
         self._delete.setObjectName("deleteActionButton")
         self._undo = QPushButton("Undo")
         self._undo.setObjectName("undoActionButton")
-        self._clear = QPushButton("Clear")
+        self._clear = QPushButton("Clear mission")
         self._clear.setObjectName("clearMissionButton")
         controls.addWidget(self._delete)
         controls.addWidget(self._undo)
@@ -371,6 +391,7 @@ class MissionBuilderWidget(QWidget):
         self._undo.clicked.connect(self._on_undo)
         self._clear.clicked.connect(self._on_clear)
         self._remove_land.clicked.connect(self._on_remove_land)
+        self._map_provider.currentIndexChanged.connect(self._on_map_provider_changed)
         self._map.map_clicked.connect(self._on_map_clicked)
         self._map.point_selected.connect(self._on_canvas_selected)
         self._map.point_dragged.connect(self._on_point_dragged)
@@ -439,6 +460,8 @@ class MissionBuilderWidget(QWidget):
         try:
             altitude_m = _parse_finite(self._altitude.text(), "Altitude")
             kind = self._current_action_kind()
+            if self._editing_land():
+                kind = ActionKind.LAND
             action: MissionAction
             if kind is ActionKind.PROCEED:
                 action = ProceedAction(self._pending_point, altitude_m)
@@ -490,6 +513,9 @@ class MissionBuilderWidget(QWidget):
         if not self._valid_index(index):
             self._show_error("Select a mission point to delete.")
             return
+        if isinstance(self._snapshot.actions[index], LandAction):
+            self._show_error("Use Remove Land and reopen to remove the final Land point.")
+            return
         self._clear_pending()
         self.intent_emitted.emit(ActionDeleteRequested(index))
 
@@ -498,12 +524,19 @@ class MissionBuilderWidget(QWidget):
         self.intent_emitted.emit(ClearRequested())
 
     def _on_undo(self) -> None:
+        if self._snapshot.is_closed:
+            self._show_error("Use Remove Land and reopen before undoing mission points.")
+            return
         self._clear_pending()
         self.intent_emitted.emit(UndoRequested())
 
     def _on_remove_land(self) -> None:
         self._clear_pending()
         self.intent_emitted.emit(RemoveLandRequested())
+
+    def _on_map_provider_changed(self) -> None:
+        value = cast(str, self._map_provider.currentData())
+        self._map.set_tile_provider(TileProvider(value))
 
     def _begin_edit(self, index: int) -> None:
         action = self._snapshot.actions[index]
@@ -513,17 +546,21 @@ class MissionBuilderWidget(QWidget):
         self._pending_coordinates.setText(_format_point(action.point))
         if isinstance(action, ProceedAction):
             self._set_action_kind(ActionKind.PROCEED)
+            self._action_kind.setEnabled(True)
             altitude_m = action.altitude_m
         elif isinstance(action, HoldAction):
             self._set_action_kind(ActionKind.HOLD)
+            self._action_kind.setEnabled(True)
             altitude_m = action.altitude_m
             self._hold_time.setText(f"{action.hold_time_s:g}")
         elif isinstance(action, CircleAction):
             self._set_action_kind(ActionKind.CIRCLE)
+            self._action_kind.setEnabled(True)
             altitude_m = action.altitude_m
             self._radius.setText(f"{action.radius_m:g}")
         else:
             self._set_action_kind(ActionKind.LAND)
+            self._action_kind.setEnabled(False)
             altitude_m = action.approach_altitude_m
         self._altitude.setText(f"{altitude_m:g}")
         self._pending_panel.setVisible(True)
@@ -532,6 +569,7 @@ class MissionBuilderWidget(QWidget):
     def _clear_pending(self) -> None:
         self._pending_point = None
         self._editing_index = None
+        self._action_kind.setEnabled(True)
         self._pending_panel.setVisible(False)
         self._clear_error()
         self._refresh_map()
@@ -571,8 +609,11 @@ class MissionBuilderWidget(QWidget):
         self._action_list.blockSignals(False)
         has_actions = bool(self._snapshot.actions)
         has_selection = selected is not None and self._valid_index(selected)
-        self._delete.setEnabled(has_selection)
-        self._undo.setEnabled(has_actions)
+        selected_is_land = has_selection and isinstance(
+            self._snapshot.actions[cast(int, selected)], LandAction
+        )
+        self._delete.setEnabled(has_selection and not selected_is_land)
+        self._undo.setEnabled(has_actions and not self._snapshot.is_closed)
         self._clear.setEnabled(has_actions)
 
     def _render_summary(self) -> None:
@@ -609,6 +650,11 @@ class MissionBuilderWidget(QWidget):
 
     def _valid_index(self, index: int) -> bool:
         return 0 <= index < len(self._snapshot.actions)
+
+    def _editing_land(self) -> bool:
+        return self._editing_index is not None and isinstance(
+            self._snapshot.actions[self._editing_index], LandAction
+        )
 
 
 def _card(name: str) -> QFrame:

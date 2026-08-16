@@ -46,9 +46,20 @@ def test_inner_layers_do_not_import_optional_or_ui_frameworks() -> None:
             ), f"{path} imports a forbidden framework: {sorted(imports)}"
 
 
-def test_foundation_has_no_deferred_feature_apis() -> None:
-    deferred_api_fragments = ("QtWeb" + "Engine", "pyma" + "vlink", "PARAM" + "_SET")
+def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
+    deferred_api_fragments = ("pyma" + "vlink", "PARAM" + "_SET")
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(SOURCE_ROOT.rglob("*.py"))
     )
     assert not any(fragment in source for fragment in deferred_api_fragments)
+
+
+def test_webengine_is_confined_to_the_authorized_map_host() -> None:
+    webengine_fragment = "QtWeb" + "Engine"
+    users = {
+        path.relative_to(SOURCE_ROOT)
+        for path in sorted(SOURCE_ROOT.rglob("*.py"))
+        if webengine_fragment in path.read_text(encoding="utf-8")
+    }
+
+    assert users == {Path("ui/map/host.py")}

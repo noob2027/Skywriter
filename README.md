@@ -110,9 +110,8 @@ The documents in this starter package are the implementation source of truth. Be
 
 ## Windows developer setup
 
-Task 001 supports CPython 3.11 through 3.14 on 64-bit Windows. The exact lock uses
-PySide6 Essentials: the official Qt for Python Widgets/Core subset needed by the shell,
-without adding Qt WebEngine before its bounded task.
+The project supports CPython 3.11 through 3.14 on 64-bit Windows. The exact lock uses
+PySide6 Addons and Essentials, including Qt WebEngine for the accepted Path A map host.
 
 From a clean PowerShell checkout:
 
