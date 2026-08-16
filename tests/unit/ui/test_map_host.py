@@ -268,7 +268,17 @@ def test_drag_released_outside_map_and_invalid_indices_fail_closed() -> None:
     destination = target_marker + QPoint(QApplication.startDragDistance() + 30, 20)
     QTest.mousePress(target, Qt.MouseButton.LeftButton, pos=target_marker)
     QTest.mouseMove(target, destination, delay=30)
+    wait_until(
+        lambda: (
+            point_from_js(evaluate_json(host, "window.skywriterMapTest.markerCenter(0)")) != marker
+        )
+    )
     evaluate(host, "window.dispatchEvent(new Event('blur'))")
+    wait_until(
+        lambda: (
+            point_from_js(evaluate_json(host, "window.skywriterMapTest.markerCenter(0)")) == marker
+        )
+    )
     QTest.mouseRelease(target, Qt.MouseButton.LeftButton, pos=destination)
     QTest.qWait(150)
     assert dragged == []
