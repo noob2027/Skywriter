@@ -1,0 +1,106 @@
+{
+  "mission": {
+    "schema_version": 1,
+    "id": "golden-proceed",
+    "settings": {
+      "takeoff_altitude_m": 20.0,
+      "cruise_speed_m_s": 6.0,
+      "obstacle_warning_acknowledged": true
+    },
+    "actions": [
+      {
+        "type": "proceed",
+        "point": {
+          "latitude_deg": 38.8895,
+          "longitude_deg": -77.0353
+        },
+        "altitude_m": 30.0
+      },
+      {
+        "type": "land",
+        "point": {
+          "latitude_deg": 38.888,
+          "longitude_deg": -77.02
+        },
+        "approach_altitude_m": 10.0
+      }
+    ]
+  },
+  "expected_items": [
+    {
+      "sequence": 0,
+      "frame": 6,
+      "command": 22,
+      "current": true,
+      "autocontinue": true,
+      "param1": 0.0,
+      "param2": 0.0,
+      "param3": 0.0,
+      "param4": 0.0,
+      "latitude_e7": 0,
+      "longitude_e7": 0,
+      "altitude_m": 20.0,
+      "mission_type": 0
+    },
+    {
+      "sequence": 1,
+      "frame": 6,
+      "command": 178,
+      "current": false,
+      "autocontinue": true,
+      "param1": 1.0,
+      "param2": 6.0,
+      "param3": -1.0,
+      "param4": 0.0,
+      "latitude_e7": 0,
+      "longitude_e7": 0,
+      "altitude_m": 0.0,
+      "mission_type": 0
+    },
+    {
+      "sequence": 2,
+      "frame": 6,
+      "command": 16,
+      "current": false,
+      "autocontinue": true,
+      "param1": 0.0,
+      "param2": 0.0,
+      "param3": 0.0,
+      "param4": 0.0,
+      "latitude_e7": 388895000,
+      "longitude_e7": -770353000,
+      "altitude_m": 30.0,
+      "mission_type": 0
+    },
+    {
+      "sequence": 3,
+      "frame": 6,
+      "command": 16,
+      "current": false,
+      "autocontinue": true,
+      "param1": 0.0,
+      "param2": 0.0,
+      "param3": 0.0,
+      "param4": 0.0,
+      "latitude_e7": 388880000,
+      "longitude_e7": -770200000,
+      "altitude_m": 10.0,
+      "mission_type": 0
+    },
+    {
+      "sequence": 4,
+      "frame": 6,
+      "command": 21,
+      "current": false,
+      "autocontinue": true,
+      "param1": 0.0,
+      "param2": 0.0,
+      "param3": 0.0,
+      "param4": 0.0,
+      "latitude_e7": 388880000,
+      "longitude_e7": -770200000,
+      "altitude_m": 0.0,
+      "mission_type": 0
+    }
+  ]
+}
