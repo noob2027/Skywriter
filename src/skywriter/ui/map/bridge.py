@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import NoReturn, TypeAlias, cast
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from skywriter.domain.mission import GeoPoint
 
@@ -62,6 +62,13 @@ class RenderActionKind(StrEnum):
     LAND = "land"
 
 
+class TileProvider(StrEnum):
+    """Closed basemap choices accepted by the isolated map content."""
+
+    OFFLINE = "offline"
+    OPENSTREETMAP = "openstreetmap"
+
+
 @dataclass(frozen=True, slots=True)
 class RenderAction:
     """Sanitized action data sent to map content."""
@@ -81,6 +88,8 @@ class RenderModel:
 
     actions: tuple[RenderAction, ...] = ()
     pending_point: GeoPoint | None = None
+    tile_provider: TileProvider = TileProvider.OFFLINE
+    drag_threshold_px: int = 10
 
 
 class MapBridge(QObject):
@@ -89,6 +98,16 @@ class MapBridge(QObject):
     intent_received = Signal(object)
     message_rejected = Signal(str)
     render_message = Signal(str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._current_render_message = encode_render_message(RenderModel())
+
+    @Property(str, notify=render_message)
+    def current_render_message(self) -> str:
+        """Return the latest sanitized snapshot for late QWebChannel subscribers."""
+
+        return self._current_render_message
 
     @Slot(str)
     def receive_message(self, payload: str) -> None:
@@ -104,7 +123,8 @@ class MapBridge(QObject):
     def publish_render_model(self, model: RenderModel) -> None:
         """Send a sanitized, versioned render message to a connected map host."""
 
-        self.render_message.emit(encode_render_message(model))
+        self._current_render_message = encode_render_message(model)
+        self.render_message.emit(self._current_render_message)
 
 
 def parse_map_intent(payload: str) -> MapIntent:
@@ -165,11 +185,15 @@ def parse_map_intent(payload: str) -> MapIntent:
 def encode_render_message(model: RenderModel) -> str:
     """Encode a typed render model into strict JSON for map content."""
 
+    if isinstance(model.drag_threshold_px, bool) or not isinstance(model.drag_threshold_px, int):
+        raise MapBridgeError("drag_threshold_px must be an integer")
+    if model.drag_threshold_px < 1:
+        raise MapBridgeError("drag_threshold_px must be positive")
     sequences: set[int] = set()
     actions: list[JsonObject] = []
-    for action in model.actions:
-        if action.sequence < 1 or action.sequence in sequences:
-            raise MapBridgeError("render sequences must be unique positive integers")
+    for expected_sequence, action in enumerate(model.actions, start=1):
+        if action.sequence != expected_sequence or action.sequence in sequences:
+            raise MapBridgeError("render sequences must be contiguous creation order")
         sequences.add(action.sequence)
         _validate_point(action.point, f"actions[{action.sequence - 1}].point")
         if not _is_finite_number(action.altitude_m):
@@ -207,6 +231,8 @@ def encode_render_message(model: RenderModel) -> str:
             "type": "render_mission",
             "actions": actions,
             "pending_point": pending,
+            "tile_provider": model.tile_provider.value,
+            "drag_threshold_px": model.drag_threshold_px,
         },
         separators=(",", ":"),
         allow_nan=False,

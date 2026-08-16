@@ -5,40 +5,167 @@
   color: #183b3a;
 }
 
-body {
+html,
+body,
+main {
+  height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 main {
-  min-height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  background: linear-gradient(145deg, #edf4f3, #dfe9e7);
+  background: #e4edeb;
 }
 
 header {
   display: flex;
   justify-content: space-between;
-  padding: 18px 24px;
-  letter-spacing: 0.08em;
+  padding: 12px 18px 10px;
+  color: #315c59;
+  letter-spacing: 0.07em;
 }
 
 header span,
 #status {
   color: #52706d;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 #mission-map {
-  width: calc(100% - 48px);
-  height: calc(100% - 12px);
-  margin: 0 24px;
-  border: 1px solid #a5bbb7;
+  min-height: 260px;
+  margin: 0 14px;
+  overflow: hidden;
+  border: 1px solid #9fb8b4;
   border-radius: 14px;
-  background-color: rgba(255, 255, 255, 0.28);
+  background:
+    linear-gradient(rgba(33, 85, 81, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(33, 85, 81, 0.07) 1px, transparent 1px),
+    linear-gradient(145deg, #edf4f3, #d8e6e3);
+  background-size: 52px 52px, 52px 52px, auto;
+  box-shadow: 0 8px 22px rgba(22, 63, 61, 0.1);
+}
+
+#mission-map:focus-visible {
+  outline: 3px solid #23827d;
+  outline-offset: 2px;
 }
 
 #status {
-  margin: 12px 24px 18px;
+  min-height: 18px;
+  margin: 9px 18px 12px;
   text-align: right;
+}
+
+.leaflet-container {
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.leaflet-control-attribution {
+  font-size: 10px;
+}
+
+.mission-marker-shell {
+  border: 0;
+  background: transparent;
+}
+
+.mission-marker {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 2px solid #0c4543;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(18, 59, 57, 0.3);
+  color: #0c4543;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.mission-marker.is-selected {
+  border-color: #f4a340;
+  box-shadow: 0 0 0 4px rgba(244, 163, 64, 0.36), 0 3px 8px rgba(18, 59, 57, 0.3);
+}
+
+.mission-marker.is-pending {
+  border: 3px dashed #d97720;
+  background: rgba(255, 255, 255, 0.9);
+  color: #965010;
+}
+
+.mission-marker.is-land {
+  border-color: #7e2437;
+  border-radius: 5px;
+  background: #f4d5dc;
+  color: #7e2437;
+  transform: rotate(45deg);
+}
+
+.mission-marker.is-land::before {
+  content: "L";
+  font-size: 13px;
+  transform: rotate(-45deg);
+}
+
+.mission-marker.is-land > * {
+  transform: rotate(-45deg);
+}
+
+.mission-marker__sequence {
+  position: absolute;
+  right: -10px;
+  bottom: -9px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid #7e2437;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 9px;
+}
+
+.mission-label,
+.pending-label {
+  border: 1px solid rgba(24, 59, 58, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2px 8px rgba(24, 59, 58, 0.14);
+  color: #294f4d;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 5px 8px;
+}
+
+.pending-label {
+  border-color: rgba(217, 119, 32, 0.45);
+  color: #965010;
+}
+
+.mission-label::before,
+.pending-label::before {
+  display: none;
+}
+
+.circle-radius-label,
+.circle-direction-label {
+  border: 0;
+  background: transparent;
+}
+
+.circle-radius-label span,
+.circle-direction-label span {
+  display: inline-block;
+  white-space: nowrap;
+  border: 1px solid #d59a5b;
+  border-radius: 6px;
+  background: rgba(255, 249, 240, 0.95);
+  color: #8b4d12;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 5px;
 }

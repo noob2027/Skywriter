@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from typing import TypeVar, cast
 
@@ -122,7 +123,7 @@ def commit_action(
     *,
     detail: str | None = None,
 ) -> None:
-    widget.map_canvas.simulate_click(point)
+    send_map_click(widget, point)
     combo = child(widget, QComboBox, "actionKindInput")
     combo.setCurrentIndex(combo.findData(kind))
     child(widget, QLineEdit, "actionAltitudeInput").setText(altitude)
@@ -131,6 +132,37 @@ def commit_action(
     elif kind is ActionKind.CIRCLE:
         child(widget, QLineEdit, "circleRadiusInput").setText(detail or "")
     child(widget, QPushButton, "confirmActionButton").click()
+
+
+def send_map_click(widget: MissionBuilderWidget, point: GeoPoint) -> None:
+    widget.map_canvas.bridge.receive_message(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "type": "map_clicked",
+                "point": {
+                    "latitude_deg": point.latitude_deg,
+                    "longitude_deg": point.longitude_deg,
+                },
+            }
+        )
+    )
+
+
+def send_point_drag(widget: MissionBuilderWidget, index: int, point: GeoPoint) -> None:
+    widget.map_canvas.bridge.receive_message(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "type": "point_dragged",
+                "index": index,
+                "point": {
+                    "latitude_deg": point.latitude_deg,
+                    "longitude_deg": point.longitude_deg,
+                },
+            }
+        )
+    )
 
 
 def test_takeoff_requires_fields_and_exact_warning_acknowledgment() -> None:
@@ -161,14 +193,14 @@ def test_pending_cancel_does_not_commit_a_point_and_required_fields_are_enforced
     widget, adapter = make_builder()
     confirm_takeoff(widget)
 
-    widget.map_canvas.simulate_click(GeoPoint(38.0, -77.0))
+    send_map_click(widget, GeoPoint(38.0, -77.0))
     assert widget.pending_point == GeoPoint(38.0, -77.0)
     assert not child(widget, QWidget, "pendingPointPanel").isHidden()
     child(widget, QPushButton, "cancelPendingButton").click()
     assert widget.pending_point is None
     assert adapter.snapshot.actions == ()
 
-    widget.map_canvas.simulate_click(GeoPoint(38.0, -77.0))
+    send_map_click(widget, GeoPoint(38.0, -77.0))
     child(widget, QComboBox, "actionKindInput").setCurrentIndex(
         child(widget, QComboBox, "actionKindInput").findData(ActionKind.HOLD)
     )
@@ -185,7 +217,7 @@ def test_complete_flow_renders_route_labels_circle_cues_and_land_closure() -> No
 
     commit_action(widget, GeoPoint(38.00, -77.00), ActionKind.PROCEED, "30")
     commit_action(widget, GeoPoint(38.01, -77.01), ActionKind.HOLD, "32", detail="8")
-    widget.map_canvas.simulate_click(GeoPoint(38.02, -77.02))
+    send_map_click(widget, GeoPoint(38.02, -77.02))
     combo = child(widget, QComboBox, "actionKindInput")
     combo.setCurrentIndex(combo.findData(ActionKind.CIRCLE))
     assert not child(widget, QLabel, "circleDirectionCue").isHidden()
@@ -210,7 +242,7 @@ def test_complete_flow_renders_route_labels_circle_cues_and_land_closure() -> No
     assert not child(widget, QPushButton, "removeLandButton").isHidden()
 
     prior_count = len(adapter.received)
-    widget.map_canvas.simulate_click(GeoPoint(38.04, -77.04))
+    send_map_click(widget, GeoPoint(38.04, -77.04))
     assert len(adapter.received) == prior_count
     assert widget.pending_point is None
     assert "Remove Land" in child(widget, QLabel, "builderError").text()
@@ -236,7 +268,7 @@ def test_selection_edit_drag_delete_undo_clear_and_remove_land_reopen() -> None:
     first = cast(ProceedAction, adapter.snapshot.actions[0])
     assert first.altitude_m == 45.0
 
-    widget.map_canvas.simulate_drag(0, GeoPoint(39.0, -76.0))
+    send_point_drag(widget, 0, GeoPoint(39.0, -76.0))
     assert adapter.snapshot.actions[0].point == GeoPoint(39.0, -76.0)
 
     action_list.setCurrentRow(1)
@@ -252,7 +284,7 @@ def test_selection_edit_drag_delete_undo_clear_and_remove_land_reopen() -> None:
 def test_land_primary_control_selects_land_for_current_pending_point() -> None:
     widget, adapter = make_builder()
     confirm_takeoff(widget)
-    widget.map_canvas.simulate_click(GeoPoint(38.0, -77.0))
+    send_map_click(widget, GeoPoint(38.0, -77.0))
 
     child(widget, QPushButton, "primaryActionButton").click()
 
@@ -260,4 +292,54 @@ def test_land_primary_control_selects_land_for_current_pending_point() -> None:
     child(widget, QLineEdit, "actionAltitudeInput").setText("9")
     child(widget, QPushButton, "confirmActionButton").click()
     assert isinstance(adapter.snapshot.actions[-1], LandAction)
+    widget.close()
+
+
+def test_land_edit_is_locked_and_generic_delete_or_undo_cannot_reopen() -> None:
+    widget, adapter = make_builder()
+    confirm_takeoff(widget)
+    commit_action(widget, GeoPoint(38.00, -77.00), ActionKind.PROCEED, "30")
+    commit_action(widget, GeoPoint(38.01, -77.01), ActionKind.LAND, "10")
+
+    action_list = child(widget, QListWidget, "missionActionList")
+    action_list.setCurrentRow(1)
+    kind_input = child(widget, QComboBox, "actionKindInput")
+    delete_button = child(widget, QPushButton, "deleteActionButton")
+    undo_button = child(widget, QPushButton, "undoActionButton")
+
+    assert not kind_input.isEnabled()
+    assert kind_input.currentData() == ActionKind.LAND.value
+    assert not delete_button.isEnabled()
+    assert not undo_button.isEnabled()
+
+    prior_count = len(adapter.received)
+    delete_button.click()
+    undo_button.click()
+    assert len(adapter.received) == prior_count
+    assert isinstance(adapter.snapshot.actions[-1], LandAction)
+
+    kind_input.setCurrentIndex(kind_input.findData(ActionKind.PROCEED.value))
+    child(widget, QLineEdit, "actionAltitudeInput").setText("12")
+    child(widget, QPushButton, "confirmActionButton").click()
+    edited_land = adapter.snapshot.actions[-1]
+    assert edited_land.approach_altitude_m == 12.0
+
+    child(widget, QPushButton, "removeLandButton").click()
+    assert len(adapter.snapshot.actions) == 1
+    assert not adapter.snapshot.is_closed
+    widget.close()
+
+
+def test_clear_mission_explicitly_resets_a_closed_mission() -> None:
+    widget, adapter = make_builder()
+    confirm_takeoff(widget)
+    commit_action(widget, GeoPoint(38.00, -77.00), ActionKind.PROCEED, "30")
+    commit_action(widget, GeoPoint(38.01, -77.01), ActionKind.LAND, "10")
+
+    clear_button = child(widget, QPushButton, "clearMissionButton")
+    assert clear_button.text() == "Clear mission"
+    clear_button.click()
+
+    assert adapter.snapshot.actions == ()
+    assert not adapter.snapshot.is_closed
     widget.close()

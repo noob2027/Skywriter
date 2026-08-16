@@ -3,19 +3,22 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>SKYWriter offline route canvas</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' qrc:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; connect-src https://tile.openstreetmap.org; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>SKYWriter mission map</title>
+    <link rel="stylesheet" href="vendor/leaflet-1.9.4/leaflet.css">
     <link rel="stylesheet" href="map.css">
   </head>
   <body>
-    <main aria-label="Offline mission route canvas">
+    <main aria-label="Interactive mission route map">
       <header>
-        <strong>OFFLINE ROUTE CANVAS</strong>
-        <span>Schematic coordinates · no tile network</span>
+        <strong>MISSION ROUTE MAP</strong>
+        <span id="provider-status">No basemap · offline</span>
       </header>
-      <canvas id="mission-map" width="960" height="640" tabindex="0"></canvas>
-      <p id="status" role="status">Click to place a pending mission point.</p>
+      <div id="mission-map" tabindex="0" role="application" aria-label="Mission coordinates and route"></div>
+      <p id="status" role="status" aria-live="polite">Connecting the local map bridge.</p>
     </main>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script src="vendor/leaflet-1.9.4/leaflet.js"></script>
     <script src="map.js"></script>
   </body>
 </html>
