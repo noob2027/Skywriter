@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TypeVar, cast
 
 from PySide6.QtCore import QPoint, Qt, QUrl
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -22,6 +22,7 @@ from skywriter.domain.mission import (
 )
 from skywriter.main import create_application
 from skywriter.ui.map import MissionMapHost
+from skywriter.ui.map.bridge import ViewportChanged
 
 T = TypeVar("T")
 
@@ -184,19 +185,47 @@ def test_python_render_reaches_leaflet_with_geographic_visual_states() -> None:
 def test_javascript_map_click_and_viewport_intents_cross_mounted_channel() -> None:
     host = make_host()
     wait_for_render(host, 0, pending=False)
-    wait_until(lambda: evaluate(host, "window.skywriterMapTest.viewportIntentReady()") is True)
     clicked: list[GeoPoint] = []
-    viewport: list[object] = []
+    viewport = QSignalSpy(host.viewport_changed)
     host.map_clicked.connect(clicked.append)
-    host.viewport_changed.connect(viewport.append)
 
     center = point_from_js(evaluate_json(host, "window.skywriterMapTest.mapCenter()"))
     target, target_center = event_target(host, center)
     QTest.mouseClick(target, Qt.MouseButton.LeftButton, pos=target_center)
     wait_until(lambda: len(clicked) == 1)
 
-    evaluate(host, "window.skywriterMapTest.panBy(60, 20)")
-    wait_until(lambda: len(viewport) >= 1)
+    assert viewport.count() == 0
+    request_value = evaluate(host, "window.skywriterMapTest.requestViewportPan(60, 20)")
+    assert isinstance(request_value, float) and request_value.is_integer()
+    request_id = int(request_value)
+    # This acknowledgement closes the asynchronous Leaflet moveend/QWebChannel race:
+    # it arrives only after the mounted bridge validates and emits the viewport intent.
+    assert viewport.count() == 1 or viewport.wait(8_000)
+    assert viewport.count() == 1
+
+    completion = cast(
+        dict[str, object],
+        evaluate_json(
+            host,
+            f"window.skywriterMapTest.viewportPanCompletion({request_id})",
+        ),
+    )
+    before = cast(dict[str, float], completion["before"])
+    after = cast(dict[str, float], completion["after"])
+    assert before != after
+    assert cast(int, completion["moveend_sequence"]) >= 1
+
+    viewport_event = cast(ViewportChanged, viewport.at(0)[0])
+    assert (
+        viewport_event.south_west.latitude_deg
+        <= after["latitude_deg"]
+        <= viewport_event.north_east.latitude_deg
+    )
+    assert (
+        viewport_event.south_west.longitude_deg
+        <= after["longitude_deg"]
+        <= viewport_event.north_east.longitude_deg
+    )
 
     assert -90 <= clicked[0].latitude_deg <= 90
     assert -180 <= clicked[0].longitude_deg <= 180
