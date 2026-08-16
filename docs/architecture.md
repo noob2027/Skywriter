@@ -179,6 +179,29 @@ Leaflet runs inside Qt WebEngine and communicates through a narrow versioned bri
 
 Circle geometry uses the same normalized radius as the domain/compiler. The UI shows a center marker, perimeter, center-to-edge radius line, numeric radius label, and clockwise cue. Rendering tests verify pending/confirmed/selected/complete states.
 
+### Accepted production map decision
+
+The accepted Task 003 remediation architecture is **Path A: Qt WebEngine plus Leaflet**.
+The production widget hosts a packaged local page in `QWebEngineView`, and the local page uses a
+version-pinned Leaflet 1.9.4 distribution. Executable map assets must not load from a CDN. The Qt
+WebEngine dependency is supplied by the exact `PySide6-Addons` version matching
+`PySide6-Essentials`.
+
+The mission builder exposes a small basemap provider selector. Its initial choices are:
+
+- **No basemap (offline)**, which is the deterministic default and performs no network requests.
+- **OpenStreetMap Standard**, using only the documented
+  `https://tile.openstreetmap.org/{z}/{x}/{y}.png` endpoint with visible OpenStreetMap attribution,
+  an application-identifying user agent, normal interactive viewing, honored cache headers, and no
+  bulk download, prefetch, or offline-tile feature.
+
+Additional providers require a separately reviewed, documented endpoint and licensing/cache policy.
+Providers that require credentials may use a key supplied at runtime by the user; keys must never be
+committed, persisted in mission JSON, exposed to bridge messages, or written to logs. The selector
+must not accept arbitrary URL templates. Navigation remains restricted to the packaged local page,
+and tile requests are limited to the selected provider's allowlisted origins. A provider failure must
+leave mission editing usable and must not silently switch providers.
+
 ## 9. Persistence
 
 JSON includes `schema_version`, stable mission ID, settings, and discriminated action objects. It excludes ports, target IDs, connection state, compiled bytes, acknowledgment history, and trusted verification. Writes are atomic (temporary file plus replace); loads are parsed, migrated only through explicit migrations, structurally validated, and recompiled.

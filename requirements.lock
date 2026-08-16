@@ -1,4 +1,4 @@
-# Exact Windows dependency lock for SKYWriter Task 001.
+# Exact Windows dependency lock for SKYWriter.
 # Resolved with CPython 3.12 on 2026-08-15 from the direct pins in pyproject.toml.
 ast-serialize==0.8.0
 colorama==0.4.6
@@ -10,6 +10,7 @@ packaging==26.3
 pathspec==1.1.1
 pluggy==1.6.0
 Pygments==2.20.0
+PySide6-Addons==6.11.1
 PySide6-Essentials==6.11.1
 pytest==9.1.1
 ruff==0.16.3
