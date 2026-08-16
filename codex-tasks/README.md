@@ -25,6 +25,10 @@ Run the required tests and return the requested handoff report.
 
 Parallel means separate branches with non-overlapping ownership, not multiple tasks in one Codex prompt. Tasks 002–004 and 006–008 are the only planned parallel waves. Stop a parallel task and raise a dedicated contract PR if shared interfaces must change.
 
+## Remediation handoffs
+
+- [`pre-task-005-remediation-readiness.md`](pre-task-005-remediation-readiness.md): required review, correction, merge-order, and stop gates before Task 005 may begin
+
 ## Task index
 
 - [`001-foundation.md`](001-foundation.md)
