@@ -1,0 +1,156 @@
+{
+  "mission": {
+    "schema_version": 1,
+    "id": "golden-mixed",
+    "settings": {
+      "takeoff_altitude_m": 22.5,
+      "cruise_speed_m_s": 8.25,
+      "obstacle_warning_acknowledged": true
+    },
+    "actions": [
+      {
+        "type": "proceed",
+        "point": {
+          "latitude_deg": 51.5007292,
+          "longitude_deg": -0.1246254
+        },
+        "altitude_m": 30.0
+      },
+      {
+        "type": "hold",
+        "point": {
+          "latitude_deg": 51.501364,
+          "longitude_deg": -0.14189
+        },
+        "altitude_m": 35.0,
+        "hold_time_s": 15.0
+      },
+      {
+        "type": "circle",
+        "point": {
+          "latitude_deg": 51.503399,
+          "longitude_deg": -0.119519
+        },
+        "altitude_m": 40.0,
+        "radius_m": 25.0,
+        "turns": 1,
+        "direction": "clockwise"
+      },
+      {
+        "type": "land",
+        "point": {
+          "latitude_deg": 51.5000001,
+          "longitude_deg": -0.1
+        },
+        "approach_altitude_m": 12.0
+      }
+    ]
+  },
+  "expected_items": [
+    {
+      "sequence": 0,
+      "frame": 6,
+      "command": 22,
+      "current": true,
+      "autocontinue": true,
+      "param1": 0.0,
+      "param2": 0.0,
+      "param3": 0.0,
+      "param4": 0.0,
+      "latitude_e7": 0,
+      "longitude_e7": 0,
+      "altitude_m": 22.5,
+      "mission_type": 0
+    },
+    {
+      "sequence": 1,
+      "frame": 6,
+      "command": 178,
+      "current": false,
+      "autocontinue": true,
+      "param1": 1.0,
+      "param2": 8.25,
+      "param3": -1.0,
+      "param4": 0.0,
+      "latitude_e7": 0,
+      "longitude_e7": 0,
+      "altitude_m": 0.0,
+      "mission_type": 0
+    },
+    {
+      "sequence": 2,
+      "frame": 6,
+      "command": 16,
+      "current": false,
+      "autocontinue": true,
+      "param1": 0.0,
+      "param2": 0.0,
+      "param3": 0.0,
+      "param4": 0.0,
+      "latitude_e7": 515007292,
+      "longitude_e7": -1246254,
+      "altitude_m": 30.0,
+      "mission_type": 0
+    },
+    {
+      "sequence": 3,
+      "frame": 6,
+      "command": 19,
+      "current": false,
+      "autocontinue": true,
+      "param1": 15.0,
+      "param2": 0.0,
+      "param3": 0.0,
+      "param4": 0.0,
+      "latitude_e7": 515013640,
+      "longitude_e7": -1418900,
+      "altitude_m": 35.0,
+      "mission_type": 0
+    },
+    {
+      "sequence": 4,
+      "frame": 6,
+      "command": 18,
+      "current": false,
+      "autocontinue": true,
+      "param1": 1.0,
+      "param2": 0.0,
+      "param3": 25.0,
+      "param4": 0.0,
+      "latitude_e7": 515033990,
+      "longitude_e7": -1195190,
+      "altitude_m": 40.0,
+      "mission_type": 0
+    },
+    {
+      "sequence": 5,
+      "frame": 6,
+      "command": 16,
+      "current": false,
+      "autocontinue": true,
+      "param1": 0.0,
+      "param2": 0.0,
+      "param3": 0.0,
+      "param4": 0.0,
+      "latitude_e7": 515000001,
+      "longitude_e7": -1000000,
+      "altitude_m": 12.0,
+      "mission_type": 0
+    },
+    {
+      "sequence": 6,
+      "frame": 6,
+      "command": 21,
+      "current": false,
+      "autocontinue": true,
+      "param1": 0.0,
+      "param2": 0.0,
+      "param3": 0.0,
+      "param4": 0.0,
+      "latitude_e7": 515000001,
+      "longitude_e7": -1000000,
+      "altitude_m": 0.0,
+      "mission_type": 0
+    }
+  ]
+}
