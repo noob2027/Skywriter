@@ -183,6 +183,8 @@ def test_python_render_reaches_leaflet_with_geographic_visual_states() -> None:
 
 def test_javascript_map_click_and_viewport_intents_cross_mounted_channel() -> None:
     host = make_host()
+    wait_for_render(host, 0, pending=False)
+    wait_until(lambda: evaluate(host, "window.skywriterMapTest.viewportIntentReady()") is True)
     clicked: list[GeoPoint] = []
     viewport: list[object] = []
     host.map_clicked.connect(clicked.append)

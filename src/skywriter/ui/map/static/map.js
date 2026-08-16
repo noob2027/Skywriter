@@ -517,6 +517,7 @@
         y: rectangle.top + rectangle.height / 2,
       };
     },
+    viewportIntentReady: () => !suppressViewportIntent,
     panBy: (x, y) => map.panBy([x, y], { animate: false }),
     snapshot: () => ({
       action_count: renderModel.actions.length,
