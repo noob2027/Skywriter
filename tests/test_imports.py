@@ -3,6 +3,8 @@
 import importlib
 import pkgutil
 
+from PySide6.QtWebEngineWidgets import QWebEngineView
+
 import skywriter
 
 
@@ -15,3 +17,7 @@ def test_every_skywriter_package_imports() -> None:
     assert module_names
     for module_name in module_names:
         importlib.import_module(module_name)
+
+
+def test_qt_webengine_dependency_is_available() -> None:
+    assert QWebEngineView.__name__ == "QWebEngineView"

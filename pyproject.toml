@@ -9,6 +9,7 @@ description = "Windows desktop foundation for the SKYWriter mission console"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
+    "PySide6-Addons==6.11.1",
     "PySide6-Essentials==6.11.1",
 ]
 
