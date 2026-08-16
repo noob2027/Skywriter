@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "skywriter-task-005-open-draft",
+  "settings": {
+    "takeoff_altitude_m": 20.0,
+    "cruise_speed_m_s": 6.0,
+    "obstacle_warning_acknowledged": true
+  },
+  "actions": [
+    {
+      "type": "proceed",
+      "point": {
+        "latitude_deg": 38.8895,
+        "longitude_deg": -77.0353
+      },
+      "altitude_m": 30.0
+    },
+    {
+      "type": "hold",
+      "point": {
+        "latitude_deg": 38.89,
+        "longitude_deg": -77.04
+      },
+      "altitude_m": 32.0,
+      "hold_time_s": 8.0
+    }
+  ]
+}

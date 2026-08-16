@@ -1,4 +1,4 @@
-"""Main desktop window for the Task 001 foundation shell."""
+"""Main desktop window for the complete offline mission workflow."""
 
 import logging
 
@@ -14,6 +14,7 @@ from skywriter.application import (
 )
 from skywriter.config import DEFAULT_CONFIG, ApplicationConfig
 from skywriter.result import is_ok
+from skywriter.ui.offline_workspace import OfflineMissionWorkspace
 
 LOGGER = logging.getLogger("skywriter.ui")
 
@@ -44,7 +45,7 @@ class PlaceholderView(QWidget):
 
 
 class MainWindow(QMainWindow):
-    """Top-level SKYWriter window with three placeholder work areas."""
+    """Top-level SKYWriter window with the production offline Builder."""
 
     _VIEW_ORDER = (ViewName.BUILDER, ViewName.PREFLIGHT, ViewName.FLIGHT)
 
@@ -57,15 +58,13 @@ class MainWindow(QMainWindow):
 
         self.setObjectName("mainWindow")
         self.setWindowTitle(f"{config.name} {config.version}")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(1100, 720)
 
         self._tabs = QTabWidget()
         self._tabs.setObjectName("primaryViews")
         self._tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self._tabs.addTab(
-            PlaceholderView("Builder", "Authoring workspace placeholder — Task 001 foundation."),
-            "Builder",
-        )
+        self._mission_workspace = OfflineMissionWorkspace()
+        self._tabs.addTab(self._mission_workspace, "Builder")
         self._tabs.addTab(
             PlaceholderView("Preflight", "Readiness workspace placeholder — Task 001 foundation."),
             "Preflight",
@@ -76,13 +75,19 @@ class MainWindow(QMainWindow):
         )
         self._tabs.currentChanged.connect(self._select_view)
         self.setCentralWidget(self._tabs)
-        self.statusBar().showMessage("Foundation shell ready")
+        self.statusBar().showMessage("Offline mission builder ready — no vehicle link")
 
     @property
     def snapshot(self) -> ApplicationSnapshot:
         """Return the current immutable application snapshot."""
 
         return self._snapshot
+
+    @property
+    def mission_workspace(self) -> OfflineMissionWorkspace:
+        """Return the production offline workflow mounted in the Builder tab."""
+
+        return self._mission_workspace
 
     def _select_view(self, index: int) -> None:
         if not 0 <= index < len(self._VIEW_ORDER):
