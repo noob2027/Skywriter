@@ -26,6 +26,10 @@
   let activeDrag = null;
   let pointerInsideMap = true;
   let suppressViewportIntent = false;
+  let viewportMoveendSequence = 0;
+  let viewportPanRequestSequence = 0;
+  let pendingViewportPan = null;
+  const viewportPanCompletions = new Map();
 
   function emptyRenderModel() {
     return {
@@ -292,6 +296,20 @@
     }, 0);
   }
 
+  function requestViewportPan(x, y) {
+    const requestId = ++viewportPanRequestSequence;
+    const panWhenRenderSettled = () => {
+      if (suppressViewportIntent || pendingViewportPan !== null) {
+        window.setTimeout(panWhenRenderSettled, 0);
+        return;
+      }
+      pendingViewportPan = { requestId, before: map.getCenter() };
+      map.panBy([x, y], { animate: false });
+    };
+    panWhenRenderSettled();
+    return requestId;
+  }
+
   function draw() {
     clearRenderLayers();
     updateTileProvider(renderModel.tile_provider);
@@ -459,6 +477,7 @@
     sendIntent("map_clicked", { point: pointValue(event.latlng) });
   });
   map.on("moveend", () => {
+    viewportMoveendSequence += 1;
     if (suppressViewportIntent) {
       return;
     }
@@ -467,6 +486,14 @@
       south_west: pointValue(bounds.getSouthWest()),
       north_east: pointValue(bounds.getNorthEast()),
     });
+    if (pendingViewportPan !== null) {
+      viewportPanCompletions.set(pendingViewportPan.requestId, {
+        before: pointValue(pendingViewportPan.before),
+        after: pointValue(map.getCenter()),
+        moveend_sequence: viewportMoveendSequence,
+      });
+      pendingViewportPan = null;
+    }
   });
   mapElement.addEventListener("pointerenter", () => {
     pointerInsideMap = true;
@@ -517,8 +544,9 @@
         y: rectangle.top + rectangle.height / 2,
       };
     },
-    viewportIntentReady: () => !suppressViewportIntent,
-    panBy: (x, y) => map.panBy([x, y], { animate: false }),
+    requestViewportPan,
+    viewportPanCompletion: (requestId) =>
+      viewportPanCompletions.get(requestId) ?? null,
     snapshot: () => ({
       action_count: renderModel.actions.length,
       pending: renderModel.pending_point !== null,
