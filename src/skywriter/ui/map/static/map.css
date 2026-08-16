@@ -1,0 +1,44 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: #dfe9e7;
+  color: #183b3a;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: linear-gradient(145deg, #edf4f3, #dfe9e7);
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  padding: 18px 24px;
+  letter-spacing: 0.08em;
+}
+
+header span,
+#status {
+  color: #52706d;
+  font-size: 0.85rem;
+}
+
+#mission-map {
+  width: calc(100% - 48px);
+  height: calc(100% - 12px);
+  margin: 0 24px;
+  border: 1px solid #a5bbb7;
+  border-radius: 14px;
+  background-color: rgba(255, 255, 255, 0.28);
+}
+
+#status {
+  margin: 12px 24px 18px;
+  text-align: right;
+}
