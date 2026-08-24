@@ -111,6 +111,52 @@ Default mission frame is `MAV_FRAME_GLOBAL_RELATIVE_ALT_INT`; all displayed/stor
 
 The compatibility suite must assert every frame, parameter, coordinate, altitude, `current`, `autocontinue`, and `mission_type` value against the pinned ArduCopter/SITL target. Any required deviation from this table needs a dedicated architecture/compatibility PR. Compiler construction rejects command values outside the whitelist by type, not only by a final runtime check.
 
+### ArduCopter 4.6.3 compatibility envelope
+
+The accepted adaptation seam is a pure, version-specific boundary after
+`MissionCompiler` and before the future MAVLink transport. The logical compiler and
+its fixtures remain unchanged and unaware of vehicle identity, connections, home,
+SITL, USB, SiK, or live coordinates.
+
+`skywriter.compatibility.arducopter_4_6_3` accepts a `CompiledMission`, an opaque
+caller-established `VehicleIdentity`, a caller-supplied home state, and a caller-supplied
+time value. A usable `HomeSnapshot` must be authoritative, fresh, geographically valid,
+centimeter-preserving, and owned by the same vehicle. Missing or unconnected home is a
+typed `HomeUnresolved`; stale, invalid, non-authoritative, future-dated, or wrong-vehicle
+snapshots are converted to the same non-uploadable state. Numeric `0,0,0` is never used as
+a missing-home substitute.
+
+On success, the boundary produces an immutable native package with the vehicle's home
+waypoint at wire sequence zero and every logical compiler item shifted by one. The shifted
+Takeoff remains present at sequence one. All native `current` flags are false, all approved
+`autocontinue` values remain true, and the compiler's integer-coordinate frame and mission
+meaning remain unchanged in the upload package.
+
+Readback verification separates native home from the shifted logical mission. Both must
+verify before the combined result can be true. Expected and downloaded fields are compared
+exactly after this closed ArduCopter 4.6.3 whitelist:
+
+| Observed native normalization | Exact treatment |
+|---|---|
+| MAVLink float payloads | pack and compare as IEEE-754 binary32 |
+| sequence-zero home | retain `MAV_FRAME_GLOBAL` (0) and verify separately |
+| home altitude | native integer centimeters multiplied by binary32 `0.01f` |
+| `DO_CHANGE_SPEED` frame | frame 6 reads back as frame 0 |
+| navigation frames | frame 6 reads back as frame 3 |
+| `NAV_LOITER_TIME.param3` | compiler zero reads back as one |
+| `NAV_LAND.param4` | compiler zero reads back as one |
+
+No tolerance, reversible-transform claim, or open-ended field rewrite is permitted. Any
+other command, count, sequence, frame, flag, parameter, coordinate, altitude, or mission-type
+difference fails closed with an exact field mismatch.
+
+This envelope is not a MAVLink transport. The observed 4.6.3 behavior of requesting each
+integer upload item with legacy `MISSION_REQUEST` is retained only in compatibility evidence.
+Task 007 still owns target routing, request handling, retries, acknowledgements, download,
+timeouts, disconnect behavior, and transaction state. That future adapter must consume the
+native package without moving normalization, home authority, or mission semantics into the
+transport.
+
 ## 6. Application state
 
 Use explicit immutable snapshots and reducer/use-case transitions. Key orthogonal state:

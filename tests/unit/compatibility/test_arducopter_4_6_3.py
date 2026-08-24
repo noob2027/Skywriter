@@ -91,6 +91,13 @@ def test_home_unresolved_states_never_produce_uploadable_numeric_coordinates() -
     assert not isinstance(result, NativeMissionPackage)
 
 
+def test_native_package_cannot_be_reconstructed_with_an_expired_home() -> None:
+    package = _package()
+
+    with pytest.raises(ValueError, match="home is unresolved: stale"):
+        replace(package, validated_at_s=106.0)
+
+
 @pytest.mark.parametrize(
     ("home", "now_s", "reason"),
     (

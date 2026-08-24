@@ -44,21 +44,15 @@ def test_manifest_keeps_tag_and_published_sitl_identities_distinct() -> None:
 
     assert candidate["tag_commit"] == "92b0cd788ec29406f26c6f9c31d5ceedbd1cc538"
     assert candidate["published_sitl_commit"] == "3fc7011a7d3dc047cbb17d8bd98ee94577d144c6"
-    assert recommendation == {
-        "decision": "reject",
-        "tasks_006_through_008_blocked": True,
-        "reason": (
-            "Stock ArduCopter 4.6.3 does not preserve the accepted compiler fixture "
-            "field-for-field; sequence zero is consumed as home and the takeoff item "
-            "is lost on readback."
-        ),
-    }
+    assert recommendation["decision"] == "pin"
+    assert recommendation["tasks_006_through_008_blocked"] is False
 
 
-def test_probe_is_isolated_and_fails_the_compiler_compatibility_decision() -> None:
+def test_probe_is_isolated_and_verifies_the_compatibility_boundary() -> None:
     result = _load_json(EVIDENCE_ROOT / "probe-result.json")
     safety = cast(dict[str, object], result["safety"])
-    comparison = cast(dict[str, object], result["compiler_comparison"])
+    boundary = cast(dict[str, object], result["compatibility_boundary"])
+    verification = cast(dict[str, object], boundary["verification"])
 
     assert result["status"] == "passed"
     assert safety == {
@@ -68,9 +62,12 @@ def test_probe_is_isolated_and_fails_the_compiler_compatibility_decision() -> No
         "parameter_writes": 0,
         "real_hardware": False,
     }
-    assert comparison["expected_count"] == 7
-    assert comparison["readback_count"] == 7
-    assert comparison["all_fields_match_after_float32_normalization"] is False
+    assert len(cast(list[object], boundary["translated_upload"])) == 8
+    assert verification == {
+        "home": {"mismatches": [], "verified": True},
+        "mission": {"mismatches": [], "verified": True},
+        "verified": True,
+    }
 
 
 def test_all_whitelisted_items_crossed_stock_sitl_and_mismatches_are_retained() -> None:
@@ -92,10 +89,11 @@ def test_all_whitelisted_items_crossed_stock_sitl_and_mismatches_are_retained() 
         and record["message_type"] == "MISSION_ITEM_INT"
     ]
 
-    assert [item["command"] for item in sent_items] == [22, 178, 16, 19, 18, 16, 21]
-    assert all(item["frame"] == 6 for item in sent_items)
+    assert [item["command"] for item in sent_items] == [16, 22, 178, 16, 19, 18, 16, 21]
+    assert sent_items[0]["frame"] == 0
+    assert all(item["frame"] == 6 for item in sent_items[1:])
     assert upload["result_name"] == "MAV_MISSION_ACCEPTED"
-    assert upload["request_messages"] == ["MISSION_REQUEST"] * 7
+    assert upload["request_messages"] == ["MISSION_REQUEST"] * 8
     assert upload["sent_protocol"] == "MISSION_ITEM_INT"
 
     assert readback_items[0] == {
@@ -113,8 +111,10 @@ def test_all_whitelisted_items_crossed_stock_sitl_and_mismatches_are_retained() 
         "param4": 0.0,
         "sequence": 0,
     }
-    assert readback_items[3]["param3"] == 1.0
-    assert readback_items[6]["param4"] == 1.0
+    assert readback_items[1]["command"] == 22
+    assert readback_items[1]["altitude_m"] == 22.5
+    assert readback_items[4]["param3"] == 1.0
+    assert readback_items[7]["param4"] == 1.0
     assert all(item["current"] is False for item in readback_items)
 
     relevant_received = [
@@ -139,3 +139,17 @@ def test_native_command_acknowledgements_are_evidence_not_controls() -> None:
     assert (prearm["command"], prearm["result_name"]) == (401, "MAV_RESULT_ACCEPTED")
     assert (pause["command"], pause["result_name"]) == (193, "MAV_RESULT_FAILED")
     assert (resume["command"], resume["result_name"]) == (193, "MAV_RESULT_FAILED")
+
+
+def test_manifest_recommends_pin_only_after_clean_canonical_readback() -> None:
+    manifest = _load_json(COMPATIBILITY_ROOT / "manifest.json")
+    recommendation = cast(dict[str, object], manifest["recommendation"])
+    envelope = cast(dict[str, object], manifest["compatibility_envelope"])
+
+    assert recommendation["decision"] == "pin"
+    assert recommendation["tasks_006_through_008_blocked"] is False
+    assert envelope["logical_compiler_changed"] is False
+    assert envelope["native_home_sequence"] == 0
+    assert envelope["logical_sequence_offset"] == 1
+    assert envelope["home_verified_separately"] is True
+    assert envelope["canonical_readback_verified"] is True

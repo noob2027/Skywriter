@@ -140,6 +140,7 @@ class NativeMissionPackage:
 
     vehicle: VehicleIdentity
     home: HomeSnapshot
+    validated_at_s: float
     items: tuple[NativeMissionItem, ...]
 
     def __post_init__(self) -> None:
@@ -147,11 +148,25 @@ class NativeMissionPackage:
             raise TypeError("vehicle must be a VehicleIdentity")
         if not isinstance(self.home, HomeSnapshot):
             raise TypeError("home must be a HomeSnapshot")
+        _require_finite_number(self.validated_at_s, "validated_at_s")
+        object.__setattr__(self, "validated_at_s", float(self.validated_at_s))
+        invalid = _validate_home(self.home, target_vehicle=self.vehicle, now_s=self.validated_at_s)
+        if invalid is not None:
+            raise ValueError(f"native package home is unresolved: {invalid.reason.value}")
         items = tuple(self.items)
         if not items or not all(isinstance(item, NativeMissionItem) for item in items):
             raise TypeError("items must contain NativeMissionItem values")
         if tuple(item.sequence for item in items) != tuple(range(len(items))):
             raise ValueError("native mission sequences must start at zero with no gaps")
+        for item in items:
+            _require_approved_upload_shape(item)
+        home_item = items[0]
+        if (
+            home_item.latitude_e7,
+            home_item.longitude_e7,
+            home_item.altitude_m,
+        ) != (self.home.latitude_e7, self.home.longitude_e7, self.home.altitude_m):
+            raise ValueError("native sequence-zero item must match the validated home snapshot")
         object.__setattr__(self, "items", items)
 
 
@@ -265,7 +280,7 @@ def prepare_native_mission(
         )
         for item in compiled.items
     )
-    return NativeMissionPackage(target_vehicle, home, (home_item, *shifted))
+    return NativeMissionPackage(target_vehicle, home, float(now_s), (home_item, *shifted))
 
 
 def canonicalize_expected(package: NativeMissionPackage) -> tuple[NativeMissionItem, ...]:
@@ -310,6 +325,17 @@ def canonicalize_expected(package: NativeMissionPackage) -> tuple[NativeMissionI
     return tuple(canonical)
 
 
+def canonicalize_downloaded(
+    downloaded_items: tuple[NativeMissionItem, ...],
+) -> tuple[NativeMissionItem, ...]:
+    """Canonicalize downloaded wire floats without rewriting any semantic field."""
+
+    items = tuple(downloaded_items)
+    if not all(isinstance(item, NativeMissionItem) for item in items):
+        raise TypeError("downloaded_items must contain NativeMissionItem values")
+    return tuple(_float32_item(item) for item in items)
+
+
 def verify_native_home(
     package: NativeMissionPackage, downloaded_home: NativeMissionItem | None
 ) -> HomeVerification:
@@ -318,7 +344,7 @@ def verify_native_home(
     expected = canonicalize_expected(package)[0]
     if downloaded_home is None:
         return HomeVerification((FieldMismatch("home", "count", 1, 0),))
-    actual = _float32_item(downloaded_home)
+    actual = canonicalize_downloaded((downloaded_home,))[0]
     return HomeVerification(_compare_item("home", expected, actual))
 
 
@@ -330,13 +356,11 @@ def verify_native_readback(
 
     if not isinstance(package, NativeMissionPackage):
         raise TypeError("package must be a NativeMissionPackage")
-    actual_items = tuple(downloaded_items)
-    if not all(isinstance(item, NativeMissionItem) for item in actual_items):
-        raise TypeError("downloaded_items must contain NativeMissionItem values")
+    actual_items = canonicalize_downloaded(tuple(downloaded_items))
 
     home = verify_native_home(package, actual_items[0] if actual_items else None)
     expected_mission = canonicalize_expected(package)[1:]
-    actual_mission = tuple(_float32_item(item) for item in actual_items[1:])
+    actual_mission = actual_items[1:]
     mismatches: list[FieldMismatch] = []
     if len(actual_mission) != len(expected_mission):
         mismatches.append(

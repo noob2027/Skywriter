@@ -112,6 +112,13 @@ Run Task 005A to evaluate the maintainer-selected candidate, then approve one st
 
 Run a minimal probe against SITL and preserve raw mission upload/download evidence. The task may recommend or reject the candidate but may not silently choose or upgrade flight firmware. A later pin change repeats connected/SITL acceptance.
 
+The accepted ArduCopter 4.6.3 remediation seam is a pure compatibility envelope after the
+logical compiler and before transport. It requires caller-owned authoritative, fresh,
+same-vehicle home, inserts native home at sequence zero, shifts the unchanged logical
+mission, and verifies home separately from canonicalized logical readback. Tasks 006–008
+may depend on that boundary after its PR is accepted, but may not duplicate its
+normalization or make SITL/transport a prerequisite for offline SKYWriter.
+
 ## 8. Phase 3 — connected parallel wave
 
 Launch Tasks 006–008 from the same accepted offline/compatibility commit.

@@ -48,6 +48,22 @@ SKYWriter compiles only the following mission commands in `MAV_FRAME_GLOBAL_RELA
 
 No model field may contain a raw command identifier. The compiler owns the closed mapping, and tests must prove that unsupported commands cannot be emitted.
 
+## Pinned compatibility boundary
+
+Stock ArduCopter 4.6.3 is the recommended compatibility pin for the next connected
+development wave. The logical compiler remains unchanged. A pure version-specific
+envelope supplies a caller-owned, authoritative, fresh, same-vehicle home waypoint at
+native sequence zero and shifts the compiled Takeoff and later items by one. Missing,
+stale, invalid, or wrong-vehicle home is a typed non-uploadable state, never numeric
+`0,0,0`.
+
+Readback verifies native home separately and then compares every shifted logical field
+after only the documented closed normalization whitelist. The retained stock-SITL
+evidence and remaining platform limits are in
+[`compatibility/arducopter-4.6.3/README.md`](compatibility/arducopter-4.6.3/README.md).
+This boundary is not a production MAVLink transport and does not make offline SKYWriter
+depend on SITL, a connection, USB, or SiK.
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.

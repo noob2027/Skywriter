@@ -10,14 +10,14 @@
     "metadata_correction_rerelease_date": "2025-11-20"
   },
   "skywriter_base": {
-    "commit": "ba1b266f52ae70e5318af05a49cc5ab39d1bcd32",
-    "post_merge_ci_run": 32758289013,
+    "commit": "fd670c107f3c9ec9ed9569ceb494ff2bd0692af3",
+    "post_merge_ci_run": 32766426099,
     "post_merge_ci_conclusion": "success"
   },
   "recommendation": {
-    "decision": "reject",
-    "tasks_006_through_008_blocked": true,
-    "reason": "Stock ArduCopter 4.6.3 does not preserve the accepted compiler fixture field-for-field; sequence zero is consumed as home and the takeoff item is lost on readback."
+    "decision": "pin",
+    "tasks_006_through_008_blocked": false,
+    "reason": "The pure compatibility envelope supplies separately verified native home at sequence zero, shifts every unchanged logical compiler item, and the translated upload matches stock ArduCopter 4.6.3 readback after only the closed documented normalization whitelist."
   },
   "official_artifacts": [
     {
@@ -72,15 +72,32 @@
     "lock_sha256": "ff7bff0c3deb78b960dfe0363f5504cfd7a7832655325262e48b3cf7a7248d81"
   },
   "probe_run": {
-    "workflow_run": 32761520693,
-    "workflow_url": "https://github.com/noob2027/Skywriter/actions/runs/32761520693",
-    "head_commit": "ec0e545d4cd7b4dd4a778358fc45c75e3d105c32",
+    "workflow_run": 32767813658,
+    "workflow_url": "https://github.com/noob2027/Skywriter/actions/runs/32767813658",
+    "head_commit": "576f9f0d221bbca00d6218ca22b65387f37aa0ad",
     "conclusion": "success",
-    "duration_seconds": 54,
-    "artifact_id": 9532864764,
-    "artifact_sha256": "ad14eed70234bf2e063b916d7d90e6156e4b659c37c3d7a0b1707b0ea4f75d58",
+    "duration_seconds": 49,
+    "artifact_id": 9535099278,
+    "artifact_sha256": "9e11894bcd773a008835391f2603bc8c35256a141e971c7dc4a831bbd3c31b40",
     "evidence_hash_ledger": "evidence/SHA256SUMS",
-    "evidence_hash_ledger_sha256": "b8b1bfe1f2f16110170d6b9e5448ec6a9e7d59857268581089a623e85f37cf7a"
+    "evidence_hash_ledger_sha256": "60e7ae6134c8af9e6e4ac501736e315ec61bd7e8d829e69cf70efeddc21a6aa4",
+    "diagnostic_run": {
+      "workflow_run": 32767540511,
+      "conclusion": "failure",
+      "duration_seconds": 42,
+      "finding": "The shifted logical mission matched; separately verified home altitude exposed the exact ArduPilot integer-centimeters multiplied by binary32 0.01f normalization."
+    }
+  },
+  "compatibility_envelope": {
+    "module": "skywriter.compatibility.arducopter_4_6_3",
+    "logical_compiler_changed": false,
+    "native_home_sequence": 0,
+    "logical_sequence_offset": 1,
+    "translated_item_count": 8,
+    "readback_item_count": 8,
+    "home_verified_separately": true,
+    "canonical_readback_verified": true,
+    "legacy_upload_requests_observed": 8
   },
   "hardware_context": {
     "intended_family": [

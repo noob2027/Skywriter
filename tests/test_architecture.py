@@ -46,6 +46,25 @@ def test_inner_layers_do_not_import_optional_or_ui_frameworks() -> None:
             ), f"{path} imports a forbidden framework: {sorted(imports)}"
 
 
+def test_compatibility_envelopes_are_pure_and_transport_independent() -> None:
+    forbidden = (
+        "skywriter.application",
+        "skywriter.infrastructure",
+        "skywriter.ui",
+        "PySide6",
+        "pymavlink",
+        "serial",
+    )
+
+    for path in (SOURCE_ROOT / "compatibility").rglob("*.py"):
+        imports = imported_modules(path)
+        assert not any(
+            module == prefix or module.startswith(f"{prefix}.")
+            for module in imports
+            for prefix in forbidden
+        ), f"{path} crosses the pure compatibility boundary: {sorted(imports)}"
+
+
 def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
     deferred_api_fragments = ("pyma" + "vlink", "PARAM" + "_SET")
     source = "\n".join(
