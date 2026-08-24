@@ -26,6 +26,26 @@ os.environ.setdefault("MAVLINK20", "1")
 from pymavlink import __version__ as pymavlink_version  # noqa: E402
 from pymavlink import mavutil  # noqa: E402
 
+from skywriter.compatibility.arducopter_4_6_3 import (  # noqa: E402
+    NORMALIZATION_WHITELIST,
+    HomeSnapshot,
+    HomeUnresolved,
+    NativeMissionPackage,
+    VehicleIdentity,
+    item_from_document,
+    item_to_document,
+    prepare_native_mission,
+    verification_to_document,
+    verify_native_readback,
+)
+from skywriter.domain.compiled import (  # noqa: E402
+    CompiledMission,
+    CompiledMissionItem,
+    MissionCommand,
+    MissionFrame,
+    MissionType,
+)
+
 JsonObject = dict[str, object]
 
 MISSION_TYPE = 0
@@ -94,14 +114,33 @@ def _json_safe(value: object) -> object:
     return repr(value)
 
 
-def _load_fixture(path: Path) -> list[JsonObject]:
+def _load_fixture(path: Path) -> CompiledMission:
     root = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(root, dict):
         raise TypeError("fixture root must be an object")
     items = root.get("expected_items")
     if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
         raise TypeError("fixture expected_items must be an object array")
-    return cast(list[JsonObject], items)
+    return CompiledMission(
+        tuple(
+            CompiledMissionItem(
+                sequence=int(item["sequence"]),
+                frame=MissionFrame(int(item["frame"])),
+                command=MissionCommand(int(item["command"])),
+                current=bool(item["current"]),
+                autocontinue=bool(item["autocontinue"]),
+                param1=float(item["param1"]),
+                param2=float(item["param2"]),
+                param3=float(item["param3"]),
+                param4=float(item["param4"]),
+                latitude_e7=int(item["latitude_e7"]),
+                longitude_e7=int(item["longitude_e7"]),
+                altitude_m=float(item["altitude_m"]),
+                mission_type=MissionType(int(item["mission_type"])),
+            )
+            for item in cast(list[JsonObject], items)
+        )
+    )
 
 
 def _connect(connection_string: str, timeout_s: float) -> Any:
@@ -420,7 +459,7 @@ def _drain_messages(
 
 def _run_probe(sitl_path: Path, fixture_path: Path, output_path: Path) -> JsonObject:
     output_path.mkdir(parents=True, exist_ok=True)
-    fixture_items = _load_fixture(fixture_path)
+    compiled_mission = _load_fixture(fixture_path)
     result: JsonObject = {
         "status": "failed",
         "safety": {
@@ -486,7 +525,7 @@ def _run_probe(sitl_path: Path, fixture_path: Path, output_path: Path) -> JsonOb
                 int(mavutil.mavlink.MAVLINK_MSG_ID_AUTOPILOT_VERSION),
                 "AUTOPILOT_VERSION",
             )
-            result["home_position"] = _request_message(
+            home_position = _request_message(
                 connection,
                 recorder,
                 target_system,
@@ -494,6 +533,43 @@ def _run_probe(sitl_path: Path, fixture_path: Path, output_path: Path) -> JsonOb
                 int(mavutil.mavlink.MAVLINK_MSG_ID_HOME_POSITION),
                 "HOME_POSITION",
             )
+            result["home_position"] = home_position
+            vehicle = VehicleIdentity(f"mavlink:{target_system}:{target_component}")
+            home = HomeSnapshot(
+                vehicle=vehicle,
+                latitude_e7=int(home_position["latitude"]),
+                longitude_e7=int(home_position["longitude"]),
+                altitude_m=float(home_position["altitude"]) / 1000.0,
+                captured_at_s=0.0,
+                valid_for_s=60.0,
+                authoritative=True,
+            )
+            prepared = prepare_native_mission(
+                compiled_mission,
+                target_vehicle=vehicle,
+                home=home,
+                now_s=0.0,
+            )
+            if isinstance(prepared, HomeUnresolved):
+                raise RuntimeError(
+                    f"compatibility boundary rejected SITL home: {prepared.reason.value}"
+                )
+            if not isinstance(prepared, NativeMissionPackage):
+                raise TypeError("compatibility boundary returned an unexpected value")
+            upload_items = [item_to_document(item) for item in prepared.items]
+            result["compatibility_boundary"] = {
+                "vehicle_identity": vehicle.value,
+                "home_snapshot": {
+                    "latitude_e7": home.latitude_e7,
+                    "longitude_e7": home.longitude_e7,
+                    "altitude_m": home.altitude_m,
+                    "authoritative": home.authoritative,
+                    "captured_at_s": home.captured_at_s,
+                    "valid_for_s": home.valid_for_s,
+                },
+                "normalization_whitelist": list(NORMALIZATION_WHITELIST),
+                "translated_upload": upload_items,
+            }
             result["mission_before_upload"] = _download_mission(
                 connection, recorder, target_system, target_component
             )
@@ -502,14 +578,23 @@ def _run_probe(sitl_path: Path, fixture_path: Path, output_path: Path) -> JsonOb
                 recorder,
                 target_system,
                 target_component,
-                fixture_items,
+                upload_items,
             )
             mission_after = _download_mission(connection, recorder, target_system, target_component)
             result["mission_after_upload"] = mission_after
-            result["compiler_comparison"] = _compare_items(
-                fixture_items,
+            result["raw_upload_comparison"] = _compare_items(
+                upload_items,
                 cast(list[JsonObject], mission_after["items"]),
             )
+            downloaded_items = tuple(
+                item_from_document(item) for item in cast(list[JsonObject], mission_after["items"])
+            )
+            verification = verify_native_readback(prepared, downloaded_items)
+            cast(JsonObject, result["compatibility_boundary"])["verification"] = (
+                verification_to_document(verification)
+            )
+            if not verification.verified:
+                raise RuntimeError("translated mission failed canonical readback verification")
 
             prearm_command = int(mavutil.mavlink.MAV_CMD_RUN_PREARM_CHECKS)
             result["prearm_request_ack"] = _probe_command_ack(

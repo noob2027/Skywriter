@@ -11,6 +11,8 @@ jobs:
     name: Stock Copter 4.6.3 / Ubuntu / Python 3.12
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      PYTHONPATH: src
 
     steps:
       - uses: actions/checkout@v4
