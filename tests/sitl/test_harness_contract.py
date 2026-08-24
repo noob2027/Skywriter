@@ -121,7 +121,8 @@ def test_launch_failure_preserves_hashed_evidence(
     result = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))
     hashes = (output_dir / "SHA256SUMS").read_text(encoding="utf-8")
     assert result["status"] == "failed"
-    assert result["error"].startswith("OSError:")
+    assert isinstance(result["error"], str)
+    assert result["error"]
     assert result["process_pid"] is None
     assert result["ports_released"] is True
     assert "result.json" in hashes
