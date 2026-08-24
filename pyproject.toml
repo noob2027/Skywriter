@@ -35,6 +35,7 @@ skywriter = ["ui/map/static/**/*"]
 [tool.pytest.ini_options]
 addopts = ["-ra", "--strict-config", "--strict-markers"]
 testpaths = ["tests"]
+markers = ["sitl: requires the exact approved stock ArduCopter SITL artifact"]
 
 [tool.ruff]
 line-length = 100
@@ -46,4 +47,6 @@ select = ["B", "E", "F", "I", "UP"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src", "tests"]
+explicit_package_bases = true
+mypy_path = ["src", "."]
+files = ["src", "tests", "scripts/sitl"]

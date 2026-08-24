@@ -64,6 +64,9 @@ evidence and remaining platform limits are in
 This boundary is not a production MAVLink transport and does not make offline SKYWriter
 depend on SITL, a connection, USB, or SiK.
 
+The isolated pinned-target test workflow and practical Windows limitations are
+documented in [`docs/sitl-harness.md`](docs/sitl-harness.md).
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.
