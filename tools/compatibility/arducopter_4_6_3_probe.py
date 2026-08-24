@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import struct
 import subprocess
@@ -66,7 +67,15 @@ class EvidenceRecorder:
 
     def receive(self, message: object) -> None:
         mavlink_message = cast(Any, message)
-        self.write("vehicle_to_probe", mavlink_message.get_type(), mavlink_message.to_dict())
+        fields = mavlink_message.to_dict()
+        header = getattr(mavlink_message, "_header", None)
+        fields["_wire"] = {
+            "magic": getattr(header, "magic", None),
+            "sequence": getattr(header, "seq", None),
+            "source_system": mavlink_message.get_srcSystem(),
+            "source_component": mavlink_message.get_srcComponent(),
+        }
+        self.write("vehicle_to_probe", mavlink_message.get_type(), fields)
 
 
 def _json_safe(value: object) -> object:
@@ -76,6 +85,8 @@ def _json_safe(value: object) -> object:
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
     if value is None or isinstance(value, str | int | float | bool):
         return value
     return repr(value)
@@ -276,6 +287,7 @@ def _upload_mission(
     connection.mav.mission_count_send(**count_fields)
 
     sent_sequences: list[int] = []
+    request_messages: list[str] = []
     while True:
         response = _receive_until(
             connection,
@@ -291,13 +303,11 @@ def _upload_mission(
             return {
                 "ack": cast(JsonObject, _json_safe(response.to_dict())),
                 "result_name": enum_entry.name if enum_entry is not None else "UNKNOWN",
-                "requested_protocol": "MISSION_ITEM_INT",
+                "request_messages": request_messages,
+                "sent_protocol": "MISSION_ITEM_INT",
                 "sent_sequences": sent_sequences,
             }
-        if response_type != "MISSION_REQUEST_INT":
-            raise RuntimeError(
-                "stock target requested legacy MISSION_ITEM instead of MISSION_ITEM_INT"
-            )
+        request_messages.append(response_type)
         sequence = int(response.seq)
         if not 0 <= sequence < len(fixture_items):
             raise RuntimeError(f"target requested out-of-range mission sequence {sequence}")
@@ -306,6 +316,9 @@ def _upload_mission(
             target_component,
             fixture_items[sequence],
         )
+        # ArduCopter 4.6.3 advertises MISSION_INT but may issue the legacy request.
+        # Respond with the compiler boundary's integer item to test actual stock
+        # acceptance while retaining the request mismatch as compatibility evidence.
         recorder.write("probe_to_vehicle", "MISSION_ITEM_INT", fields)
         connection.mav.mission_item_int_send(**fields)
         sent_sequences.append(sequence)
