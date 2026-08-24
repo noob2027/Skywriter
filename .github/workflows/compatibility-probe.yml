@@ -2,8 +2,6 @@ name: Task 005A compatibility probe
 
 on:
   workflow_dispatch:
-  push:
-    branches: [agent/task-005a-compatibility-pin]
 
 permissions:
   contents: read

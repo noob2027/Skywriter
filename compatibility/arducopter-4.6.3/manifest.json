@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "candidate": {
+    "name": "stock ArduCopter",
+    "version": "4.6.3",
+    "official_tag": "Copter-4.6.3",
+    "tag_commit": "92b0cd788ec29406f26c6f9c31d5ceedbd1cc538",
+    "published_sitl_commit": "3fc7011a7d3dc047cbb17d8bd98ee94577d144c6",
+    "release_stable_date": "2025-11-04",
+    "metadata_correction_rerelease_date": "2025-11-20"
+  },
+  "skywriter_base": {
+    "commit": "ba1b266f52ae70e5318af05a49cc5ab39d1bcd32",
+    "post_merge_ci_run": 32758289013,
+    "post_merge_ci_conclusion": "success"
+  },
+  "recommendation": {
+    "decision": "reject",
+    "tasks_006_through_008_blocked": true,
+    "reason": "Stock ArduCopter 4.6.3 does not preserve the accepted compiler fixture field-for-field; sequence zero is consumed as home and the takeoff item is lost on readback."
+  },
+  "official_artifacts": [
+    {
+      "name": "Copter-4.6.3 GitHub tag archive",
+      "url": "https://github.com/ArduPilot/ardupilot/archive/refs/tags/Copter-4.6.3.tar.gz",
+      "size_bytes": 201694106,
+      "sha256": "e7876fb1801c35c3b0700f34715f3bb70de3e4c760933532555dfac5b295139b",
+      "retained_in_repository": false
+    },
+    {
+      "name": "Copter 4.6.3 SITL x86_64 Linux GNU binary",
+      "url": "https://firmware.ardupilot.org/Copter/stable-4.6.3/SITL_x86_64_linux_gnu/arducopter",
+      "size_bytes": 7023152,
+      "sha256": "7862662092edc2861fc03da3d6fb2f0136d1670e563ca324eb52c1a324d1e14b",
+      "retained_in_repository": false
+    },
+    {
+      "name": "SITL features.txt",
+      "url": "https://firmware.ardupilot.org/Copter/stable-4.6.3/SITL_x86_64_linux_gnu/features.txt",
+      "size_bytes": 4516,
+      "sha256": "da4d31e37f805d476ffd862b06aa116a721bdb85d749c62412dd33d0668cf7bb",
+      "retained_path": "evidence/official/features.txt"
+    },
+    {
+      "name": "SITL firmware-version.txt",
+      "url": "https://firmware.ardupilot.org/Copter/stable-4.6.3/SITL_x86_64_linux_gnu/firmware-version.txt",
+      "size_bytes": 37,
+      "sha256": "e84f633cb8dc42a89ec314745ca41a67f6a360f69c9fb01af1892084be6a57c9",
+      "retained_path": "evidence/official/firmware-version.txt"
+    },
+    {
+      "name": "SITL git-version.txt",
+      "url": "https://firmware.ardupilot.org/Copter/stable-4.6.3/SITL_x86_64_linux_gnu/git-version.txt",
+      "size_bytes": 188,
+      "sha256": "62a923fa86dfdbec5fb33b4830555f0d3174edefd4f70839fe8ccf9754a8e390",
+      "retained_path": "evidence/official/git-version.txt"
+    }
+  ],
+  "mavlink": {
+    "dialect": "ardupilotmega",
+    "wire_protocol": "2.0",
+    "wire_magic_observed": 253,
+    "ardupilot_mavlink_submodule_commit": "bb87bc7390af7f21d9ad33a45c8be02997fecd24",
+    "ardupilotmega_xml_sha256": "dd9798d664d06e2b3c9115258ab30135e13f979826dd1de9774ed3ba848b5be1",
+    "common_xml_sha256": "4563c1ca9d2461bec48f5efd844d142c14fea20464c318b6d5949f27cf0db0df",
+    "pymavlink_source_submodule_commit": "8ba67079211a4315681bc84a44c37b383448d664",
+    "pymavlink_source_declared_version": "2.4.41",
+    "pymavlink_release_tag_commit": "4d8c4ff274d41b9bc8da1a411cb172d39786e46b",
+    "probe_distribution": "pymavlink==2.4.41",
+    "probe_wheel_sha256": "5cbc975a1192359d60ea75bede789486a84e50d2ea07435b33a32ee5cb13c11f",
+    "lock_path": "requirements-probe.lock",
+    "lock_sha256": "ff7bff0c3deb78b960dfe0363f5504cfd7a7832655325262e48b3cf7a7248d81"
+  },
+  "probe_run": {
+    "workflow_run": 32761520693,
+    "workflow_url": "https://github.com/noob2027/Skywriter/actions/runs/32761520693",
+    "head_commit": "ec0e545d4cd7b4dd4a778358fc45c75e3d105c32",
+    "conclusion": "success",
+    "duration_seconds": 54,
+    "artifact_id": 9532864764,
+    "artifact_sha256": "ad14eed70234bf2e063b916d7d90e6156e4b659c37c3d7a0b1707b0ea4f75d58",
+    "evidence_hash_ledger": "evidence/SHA256SUMS",
+    "evidence_hash_ledger_sha256": "b8b1bfe1f2f16110170d6b9e5448ec6a9e7d59857268581089a623e85f37cf7a"
+  },
+  "hardware_context": {
+    "intended_family": [
+      "Matek H7A3",
+      "Matek H743"
+    ],
+    "official_candidate_directories_observed": [
+      "MatekH7A3",
+      "MatekH743",
+      "MatekH743-bdshot"
+    ],
+    "exact_board_and_revision": "unresolved; aircraft not yet built",
+    "board_firmware_file": "not supplied",
+    "physical_usb_connector": "USB Type-C expected; interface and bootloader mapping unverified",
+    "telemetry_radio": "Holybro 933 MHz SiK preferred; exact model, firmware, legal region, baud, and clone equivalence unresolved"
+  },
+  "safety": {
+    "real_hardware_used": false,
+    "flight_performed": false,
+    "firmware_modified_or_built": false,
+    "firmware_redistributed": false,
+    "parameter_writes": 0,
+    "arm_requested": false,
+    "mode_changes": 0,
+    "production_adapter_changes": 0
+  }
+}
