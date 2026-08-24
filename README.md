@@ -67,6 +67,11 @@ depend on SITL, a connection, USB, or SiK.
 The isolated pinned-target test workflow and practical Windows limitations are
 documented in [`docs/sitl-harness.md`](docs/sitl-harness.md).
 
+The receive-only telemetry whitelist, explicit freshness/availability policy, presentation
+seam, screenshots, and unresolved hardware assumptions are documented in
+[`docs/telemetry.md`](docs/telemetry.md). This boundary emits no MAVLink traffic and does
+not make offline SKYWriter depend on a vehicle link or SITL.
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.

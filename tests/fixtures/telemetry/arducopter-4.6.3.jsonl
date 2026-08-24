@@ -1,0 +1,11 @@
+{"name":"HEARTBEAT","source_system":1,"source_component":1,"fields":{"type":2,"autopilot":3,"base_mode":89,"custom_mode":3,"system_status":4,"mavlink_version":3}}
+{"name":"GLOBAL_POSITION_INT","source_system":1,"source_component":1,"fields":{"time_boot_ms":12000,"lat":515007291,"lon":-1246254,"alt":151230,"relative_alt":1230,"vx":300,"vy":400,"vz":-10,"hdg":12345}}
+{"name":"SYS_STATUS","source_system":1,"source_component":1,"fields":{"onboard_control_sensors_present":2351,"onboard_control_sensors_enabled":2351,"onboard_control_sensors_health":2319,"voltage_battery":16400,"current_battery":220,"battery_remaining":78}}
+{"name":"BATTERY_STATUS","source_system":1,"source_component":1,"fields":{"id":0,"battery_function":1,"type":3,"temperature":3200,"voltages":[4100,4090,4080,4070,65535,65535,65535,65535,65535,65535],"current_battery":215,"current_consumed":120,"energy_consumed":90,"battery_remaining":77}}
+{"name":"HOME_POSITION","source_system":1,"source_component":1,"fields":{"latitude":515007291,"longitude":-1246254,"altitude":15100,"x":0.0,"y":0.0,"z":0.0,"q":[0.0,0.0,0.0,0.0],"approach_x":0.0,"approach_y":0.0,"approach_z":0.0,"time_usec":12000000}}
+{"name":"MISSION_CURRENT","source_system":1,"source_component":1,"fields":{"seq":4,"total":8,"mission_state":4,"mission_mode":1,"mission_id":0,"fence_id":0,"rally_points_id":0}}
+{"name":"MISSION_ITEM_REACHED","source_system":1,"source_component":1,"fields":{"seq":3}}
+{"name":"GPS_RAW_INT","source_system":1,"source_component":1,"fields":{"time_usec":12000000,"fix_type":3,"lat":515007291,"lon":-1246254,"alt":151230,"eph":85,"epv":120,"vel":500,"cog":12345,"satellites_visible":14}}
+{"name":"EKF_STATUS_REPORT","source_system":1,"source_component":1,"fields":{"flags":831,"velocity_variance":0.12,"pos_horiz_variance":0.18,"pos_vert_variance":0.25,"compass_variance":0.08,"terrain_alt_variance":0.3,"airspeed_variance":0.0}}
+{"name":"EXTENDED_SYS_STATE","source_system":1,"source_component":1,"fields":{"vtol_state":0,"landed_state":1}}
+{"name":"STATUSTEXT","source_system":1,"source_component":1,"fields":{"severity":6,"text":"EKF3 IMU1 origin set","id":0,"chunk_seq":0}}
