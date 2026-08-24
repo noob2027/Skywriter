@@ -2,20 +2,20 @@
 
 ## Recommendation
 
-**Reject stock ArduCopter 4.6.3 for the current SKYWriter compiler contract.** The
-candidate accepts the upload, but its download is not field-for-field compatible.
-Most importantly, ArduCopter consumes sequence zero as the home item and returns a
-home waypoint instead of SKYWriter's `NAV_TAKEOFF`. Tasks 006–008 remain blocked
-pending a separate, explicit architecture decision. This task does not propose or
-make that decision.
+**Pin stock ArduCopter 4.6.3 for the next connected-development wave.** The approved
+pure compatibility envelope preserves the unchanged logical compiler, supplies an
+authoritative same-vehicle home at native sequence zero, shifts Takeoff and every later
+logical item by one, and verifies the downloaded native home separately. The translated
+eight-item upload and canonicalized readback matched cleanly in stock SITL.
 
-The evidence PR itself may be accepted to preserve this compatibility result. That
-does not constitute acceptance of ArduCopter 4.6.3 as a production target.
+This is a compatibility recommendation, not hardware or flight acceptance. Tasks 006–008
+may consume the accepted boundary after human review and merge; they remain outside this
+PR. Props-off board, Windows USB, SiK, mission execution, and staged-flight gates remain.
 
 ## Gate, scope, and safety
 
-The accepted base is `ba1b266f52ae70e5318af05a49cc5ab39d1bcd32`. Its
-[post-merge CI run](https://github.com/noob2027/Skywriter/actions/runs/32758289013)
+The accepted base is `fd670c107f3c9ec9ed9569ceb494ff2bd0692af3`. Its
+[post-merge CI run](https://github.com/noob2027/Skywriter/actions/runs/32766426099)
 was successful before Task 005A began.
 
 The probe used only an official, unmodified stock SITL binary in a disposable
@@ -54,8 +54,8 @@ Official sources:
 - [Pinned stock SITL directory](https://firmware.ardupilot.org/Copter/stable-4.6.3/SITL_x86_64_linux_gnu/)
 
 Every downloaded or retained artifact and its hash is listed in `manifest.json` or
-`evidence/SHA256SUMS`. The successful workflow artifact itself has SHA-256
-`ad14eed70234bf2e063b916d7d90e6156e4b659c37c3d7a0b1707b0ea4f75d58`.
+`evidence/SHA256SUMS`. The final successful workflow artifact itself has GitHub-recorded
+SHA-256 `44d05a1fe8e92a72a94fd92932fc1d5d2f22d6a5d4fa97252e590a40c0f36dde`.
 
 ## MAVLink and probe dependency pin
 
@@ -76,19 +76,26 @@ Every relevant received packet in the final trace used MAVLink 2 magic byte 253.
 
 ## Probe and raw evidence
 
-The final [stock SITL run](https://github.com/noob2027/Skywriter/actions/runs/32761520693)
-completed successfully in 54 seconds at probe commit
-`ec0e545d4cd7b4dd4a778358fc45c75e3d105c32`. The preceding
-[successful semantic run](https://github.com/noob2027/Skywriter/actions/runs/32761087476)
-completed in 55 seconds. An initial
-[diagnostic run](https://github.com/noob2027/Skywriter/actions/runs/32760709844)
-failed closed when the target unexpectedly issued legacy mission requests; the
-probe was then extended to retain that mismatch and continue to the next layer.
+The final [stock SITL run](https://github.com/noob2027/Skywriter/actions/runs/32771294947)
+completed successfully in 51 seconds at completed-boundary commit
+`723dc1c6608adc0dadd3adf367c0b4020d6af5b5`. The preceding
+[successful boundary run](https://github.com/noob2027/Skywriter/actions/runs/32767813658)
+completed in 49 seconds at `576f9f0d221bbca00d6218ca22b65387f37aa0ad`.
+The first
+[diagnostic run](https://github.com/noob2027/Skywriter/actions/runs/32767540511)
+failed closed in 42 seconds because the separately verified native home altitude was
+one binary32 step below ordinary float32 packing. The exact value reproduced
+ArduPilot's integer-centimeter multiplication by binary32 `0.01f`; that narrow,
+home-only rule was added to the closed whitelist and the complete probe then passed.
+
+The earlier Task 005A runs remain relevant history: one diagnostic exposed legacy
+`MISSION_REQUEST`, and two complete unremediated probes established the original
+sequence-zero loss and field normalizations. Their evidence was not rewritten.
 
 Raw evidence is retained under `evidence/`:
 
-- `mavlink-messages.jsonl`: 297 timestamped sent/received records, including all
-  seven upload items and all seven readback items;
+- `mavlink-messages.jsonl`: 302 timestamped sent/received records, including all
+  eight translated upload items and all eight readback items;
 - `probe-result.json`: structured identity, mission comparison, home behavior,
   native acknowledgements, safety declarations, and exact SITL invocation;
 - `sitl.stdout.log` and `sitl.stderr.log`: stock-process output;
@@ -98,41 +105,62 @@ Raw evidence is retained under `evidence/`:
 The TCP SITL console emits startup text on the same stream before MAVLink framing;
 those bytes are retained as `BAD_DATA` records rather than suppressed.
 
+## Compatibility boundary
+
+`skywriter.compatibility.arducopter_4_6_3` is pure Python with no connection,
+transport, SITL, serial, USB, SiK, telemetry, parameter, or command dependency. It
+accepts the unchanged `CompiledMission`, an opaque target identity, a caller-supplied
+`HomeSnapshot`, and caller-supplied time. A home must be authoritative, fresh,
+geographically valid, centimeter-preserving, and owned by the same vehicle.
+
+`HomeUnresolved` is a typed, non-uploadable state for unconnected, unavailable, stale,
+invalid, or wrong-vehicle home. Numeric `0,0,0` cannot stand in for missing home. No
+`NativeMissionPackage` is returned on any failed home gate.
+
+The exact normalization whitelist is:
+
+- all MAVLink float payloads compare after binary32 packing;
+- sequence-zero home remains frame 0 and is verified separately;
+- home altitude uses integer centimeters multiplied by binary32 `0.01f`;
+- `DO_CHANGE_SPEED` frame 6 reads back as frame 0;
+- navigation frame 6 reads back as frame 3;
+- `NAV_LOITER_TIME.param3` zero reads back as one;
+- `NAV_LAND.param4` zero reads back as one.
+
+Every other command, count, sequence, frame, current/autocontinue flag, parameter,
+coordinate, altitude, or mission-type difference fails closed. Lossy normalizations are
+not reversed or presented as compiler values.
+
 ## Mission protocol findings
 
 The target reported capabilities `64495`, which includes
 `MAV_PROTOCOL_CAPABILITY_MISSION_INT`, and every relevant packet used MAVLink 2.
-Nevertheless, it issued seven `MISSION_REQUEST` messages rather than
-`MISSION_REQUEST_INT`. The probe retained those requests and answered each with
-the compiler boundary's `MISSION_ITEM_INT`. Stock ArduCopter accepted all seven
-items with `MAV_MISSION_ACCEPTED` and returned all seven via
-`MISSION_ITEM_INT`. This proves integer-item acceptance, while the request-format
-mismatch remains an explicit future transport concern.
+Nevertheless, it issued eight `MISSION_REQUEST` messages rather than
+`MISSION_REQUEST_INT`. The probe retained those requests and answered each with the
+compatibility package's `MISSION_ITEM_INT`. Stock ArduCopter accepted all eight items
+with `MAV_MISSION_ACCEPTED` and returned all eight via `MISSION_ITEM_INT`. This proves
+integer-item acceptance through the new boundary, while the request-format mismatch
+remains an explicit future Task 007 transport concern.
 
-The upload contained the compiler whitelist in exact order:
+The native upload contained home followed by the unchanged compiler whitelist:
 
 | Seq | Upload command | Upload frame | Readback result |
 | ---: | --- | ---: | --- |
-| 0 | `NAV_TAKEOFF` (22) | 6 | replaced by home `NAV_WAYPOINT` (16), frame 0, `current=false`, home coordinates/altitude |
-| 1 | `DO_CHANGE_SPEED` (178) | 6 | command/params preserved; frame normalized to 0 |
-| 2 | `NAV_WAYPOINT` (16) | 6 | coordinates/params preserved; frame normalized to 3 |
-| 3 | `NAV_LOITER_TIME` (19) | 6 | frame normalized to 3; `param3` changed from 0 to 1 |
-| 4 | `NAV_LOITER_TURNS` (18) | 6 | values preserved except frame normalized to 3 |
-| 5 | approach `NAV_WAYPOINT` (16) | 6 | coordinates/params preserved; frame normalized to 3 |
-| 6 | `NAV_LAND` (21) | 6 | frame normalized to 3; `param4` changed from 0 to 1 |
+| 0 | native home `NAV_WAYPOINT` (16) | 0 | home coordinates preserved; altitude matched exact home-only normalization |
+| 1 | `NAV_TAKEOFF` (22) | 6 | preserved; frame normalized to 3 |
+| 2 | `DO_CHANGE_SPEED` (178) | 6 | command/params preserved; frame normalized to 0 |
+| 3 | `NAV_WAYPOINT` (16) | 6 | coordinates/params preserved; frame normalized to 3 |
+| 4 | `NAV_LOITER_TIME` (19) | 6 | frame normalized to 3; `param3` changed from 0 to 1 |
+| 5 | `NAV_LOITER_TURNS` (18) | 6 | values preserved except frame normalized to 3 |
+| 6 | approach `NAV_WAYPOINT` (16) | 6 | coordinates/params preserved; frame normalized to 3 |
+| 7 | `NAV_LAND` (21) | 6 | frame normalized to 3; `param4` changed from 0 to 1 |
 
 Before upload, the mission count was zero. The independently requested home was
-latitude `515007291`, longitude `-1246254`, altitude 15,100 mm. After upload,
-sequence zero was that home point (altitude float32
-`15.09999942779541`) rather than the takeoff. Every readback item had
-`current=false`. Mission type remained 0 and `autocontinue=true` remained intact.
-All non-home integer coordinates were exact. All other fixture floats were exactly
-representable as float32 in this fixture; the comparison records compiler value,
-wire-normalized value, readback value, and delta for every float field.
-
-These are blocking architecture mismatches under Task 005A's acceptance rule.
-They must not be hidden in a transport adapter or fixed by silently changing the
-compiler fixture in this PR.
+latitude `515007291`, longitude `-1246254`, altitude 15,100 mm. The boundary placed
+that home at sequence zero and shifted Takeoff to sequence one. Every readback item had
+`current=false`; mission type remained 0 and `autocontinue=true` remained intact. All
+non-home integer coordinates were exact. Native home and the seven shifted logical items
+both verified with zero mismatches after the closed whitelist.
 
 ## Native compatibility acknowledgements
 
@@ -183,10 +211,11 @@ python tools/compatibility/arducopter_4_6_3_probe.py \
   --output compatibility-evidence
 ```
 
-The probe's SITL process control, evidence normalization, compiler fixture,
-production mission semantics, and future USB/SiK transports remain separate.
-SITL is evidence infrastructure only; offline SKYWriter has no SITL or pymavlink
-runtime dependency.
+The probe's SITL process control, the pure compatibility envelope, the logical compiler,
+and future USB/SiK transports remain separate. The probe imports the same pure envelope
+that future transport work must consume; it does not duplicate its normalization rules.
+SITL is evidence infrastructure only; offline SKYWriter has no SITL or pymavlink runtime
+dependency.
 
 ## Hardware-specific facts still unresolved
 
@@ -205,6 +234,21 @@ firmware, region/legal frequency plan, paired-air/ground configuration, serial
 port, voltage/pinout, and baud remain unresolved. A SpeedyFPV or other clone is
 not assumed equivalent.
 
+## Deferred adaptation and refinement points
+
+- Task 007 must define how a connected session establishes the opaque vehicle identity,
+  obtains `HOME_POSITION`, marks it authoritative, selects a bounded freshness lifetime,
+  and rechecks package expiry immediately before upload. This PR supplies no connection.
+- Task 007 must handle the observed legacy `MISSION_REQUEST` sequence, target/mission-type
+  routing, retries, timeouts, disconnects, negative acknowledgements, and full downloads.
+  None of those transaction responsibilities move into the pure envelope.
+- Task 006 may reuse the probe boundary in a repeatable harness but must keep SITL process
+  control optional and outside offline/runtime mission semantics.
+- Exact Matek target/firmware mapping, Windows USB endpoints, and SiK configuration remain
+  hardware facts for later separately authorized gates.
+- A future ArduCopter pin change must provide a new version-specific envelope/evidence
+  decision or prove that this exact closed normalization contract remains valid.
+
 ## Limitations and residual risk
 
 - Evidence is Linux SITL, not H7 board/HAL, Windows USB, or SiK behavior.
@@ -216,6 +260,8 @@ not assumed equivalent.
   onto Node.js 24; the probe steps passed and the warning did not affect evidence.
 - The source-tag/published-binary commit split remains a provenance risk even
   though both report official 4.6.3 metadata at runtime.
+- The successful result proves mission storage/readback compatibility in Linux SITL. It
+  does not yet prove execution behavior, connection-state correctness, or hardware I/O.
 
 ## Validation results
 
@@ -227,30 +273,25 @@ over an older editable installation in that shared validation environment.
 
 | Check | Exact command | Result | Wall duration |
 | --- | --- | --- | ---: |
-| Task evidence tests | `python -m pytest tests/compatibility/test_arducopter_4_6_3_evidence.py -q` | 5 passed (pytest 0.06s) | 0.797s |
-| Full Windows/offscreen suite | `$env:QT_QPA_PLATFORM='offscreen'; $env:PYTHONPATH=(Resolve-Path 'src').Path; python -m pytest` | 117 passed (pytest 10.69s) | 11.738s |
-| Formatting | `python -m ruff format --check .` | 70 files already formatted | 0.249s |
-| Lint | `python -m ruff check .` | passed | 0.179s |
-| Static typing | `python -m mypy` | 46 source files, no issues | 0.668s |
-| Probe syntax | `python -m py_compile tools/compatibility/arducopter_4_6_3_probe.py` | passed | 0.180s |
-| Offscreen smoke | `$env:QT_QPA_PLATFORM='offscreen'; $env:PYTHONPATH=(Resolve-Path 'src').Path; python -c "from skywriter.main import run; raise SystemExit(run(['skywriter-task005a'], close_after_ms=0))"` | exit 0 | 1.066s |
+| Boundary and evidence tests | `$env:PYTHONPATH=(Resolve-Path 'src').Path; python -m pytest tests/unit/compatibility/test_arducopter_4_6_3.py tests/compatibility/test_arducopter_4_6_3_evidence.py -q` | 35 passed (pytest 0.22s) | 0.990s |
+| Full Windows/offscreen suite | `$env:QT_QPA_PLATFORM='offscreen'; $env:PYTHONPATH=(Resolve-Path 'src').Path; python -m pytest` | 148 passed (pytest 7.78s) | 8.618s |
+| Formatting | `python -m ruff format --check .` | 73 files already formatted | 0.168s |
+| Lint | `python -m ruff check .` | passed | 0.142s |
+| Static typing | `$env:PYTHONPATH=(Resolve-Path 'src').Path; python -m mypy` | 49 source files, no issues | 0.662s |
+| Probe syntax | `python -m py_compile tools/compatibility/arducopter_4_6_3_probe.py` | passed | 0.174s |
+| Offscreen smoke | `$env:QT_QPA_PLATFORM='offscreen'; $env:PYTHONPATH=(Resolve-Path 'src').Path; python -c "from skywriter.main import run; raise SystemExit(run(['skywriter-task005a-remediation'], close_after_ms=0))"` | exit 0 | 0.975s |
 
-The stock SITL probe ran three times on GitHub `ubuntu-24.04`: one 49-second
-fail-closed diagnostic that exposed legacy `MISSION_REQUEST`, followed by two
-successful complete runs of 55 and 54 seconds. The final run is the retained
-wire-level evidence. Thus the complete improved probe passed 2/2 repetitions;
-the earlier failure is preserved as investigation history, not counted as a
-passing repetition.
-
-An initial local full-suite invocation without the `PYTHONPATH` override stopped
-during collection because the shared venv referenced an older Skywriter
-worktree. No tests executed in that invalid environment. The exact-current-tree
-rerun above passed; repository CI installs the checked-out project editable and
-does not use that shared local venv.
+The remediated stock-SITL boundary passed 2/2 complete GitHub `ubuntu-24.04` runs:
+49 seconds ([run 32767813658](https://github.com/noob2027/Skywriter/actions/runs/32767813658))
+and 51 seconds ([final retained run 32771294947](https://github.com/noob2027/Skywriter/actions/runs/32771294947)).
+The preceding 42-second diagnostic run failed closed on the exact home-altitude
+normalization and led to the narrow evidence-backed whitelist entry; it was not retried
+unchanged or hidden as a passing run.
 
 ## Rollback
 
-This change adds only compatibility evidence, a probe-only lock and script, tests,
-and a manually triggered workflow. Roll back by reverting the Task 005A commit.
-No firmware, production dependency, domain/compiler/UI behavior, saved user
-mission, hardware state, or external vehicle state requires restoration.
+Revert this remediation PR to remove the pure compatibility package, its tests, and the
+updated evidence/recommendation. That restores the accepted Task 005A rejection record
+and re-blocks Tasks 006–008; it does not require changing the logical compiler. No
+firmware, runtime dependency, UI behavior, saved mission, hardware state, or external
+vehicle state requires restoration because this work performed no production I/O.
