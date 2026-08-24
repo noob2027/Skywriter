@@ -66,11 +66,22 @@ def test_compatibility_envelopes_are_pure_and_transport_independent() -> None:
 
 
 def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
-    deferred_api_fragments = ("pyma" + "vlink", "PARAM" + "_SET")
+    deferred_api_fragments = ("PARAM" + "_SET",)
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(SOURCE_ROOT.rglob("*.py"))
     )
     assert not any(fragment in source for fragment in deferred_api_fragments)
+
+
+def test_pymavlink_is_confined_to_the_authorized_connection_adapter() -> None:
+    fragment = "pyma" + "vlink"
+    users = {
+        path.relative_to(SOURCE_ROOT)
+        for path in sorted(SOURCE_ROOT.rglob("*.py"))
+        if fragment in path.read_text(encoding="utf-8")
+    }
+
+    assert users == {Path("infrastructure/mavlink/connection.py")}
 
 
 def test_webengine_is_confined_to_the_authorized_map_host() -> None:

@@ -11,6 +11,7 @@ requires-python = ">=3.11,<3.15"
 dependencies = [
     "PySide6-Addons==6.11.1",
     "PySide6-Essentials==6.11.1",
+    "pymavlink==2.4.41",
 ]
 
 [project.optional-dependencies]
@@ -50,3 +51,7 @@ strict = true
 explicit_package_bases = true
 mypy_path = ["src", "."]
 files = ["src", "tests", "scripts/sitl"]
+
+[[tool.mypy.overrides]]
+module = ["pymavlink", "pymavlink.*"]
+ignore_missing_imports = true
