@@ -103,6 +103,7 @@ def test_home_unresolved_states_never_produce_uploadable_numeric_coordinates() -
         (_home(latitude_e7=900_000_001), 102.0, HomeUnresolvedReason.INVALID),
         (_home(longitude_e7=-1_800_000_001), 102.0, HomeUnresolvedReason.INVALID),
         (_home(latitude_e7=0, longitude_e7=0, altitude_m=0.0), 102.0, HomeUnresolvedReason.INVALID),
+        (_home(altitude_m=15.101), 102.0, HomeUnresolvedReason.INVALID),
         (_home(valid_for_s=0.0), 102.0, HomeUnresolvedReason.INVALID),
         (_home(captured_at_s=103.0), 102.0, HomeUnresolvedReason.INVALID),
         (_home(valid_for_s=1.0), 102.0, HomeUnresolvedReason.STALE),
@@ -122,11 +123,11 @@ def test_invalid_stale_or_wrong_vehicle_home_fails_closed(
 def test_closed_normalization_whitelist_matches_only_observed_4_6_3_changes() -> None:
     canonical = canonicalize_expected(_package())
 
-    assert len(NORMALIZATION_WHITELIST) == 6
+    assert len(NORMALIZATION_WHITELIST) == 7
     assert [item.frame for item in canonical] == [0, 3, 0, 3, 3, 3, 3, 3]
     assert canonical[4].param3 == 1.0
     assert canonical[7].param4 == 1.0
-    assert canonical[0].altitude_m == 15.100000381469727
+    assert canonical[0].altitude_m == 15.09999942779541
 
 
 def test_exact_canonical_readback_verifies_home_and_logical_items_separately() -> None:

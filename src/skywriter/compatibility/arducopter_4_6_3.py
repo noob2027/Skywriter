@@ -202,6 +202,7 @@ class NativeReadbackVerification:
 NORMALIZATION_WHITELIST: tuple[str, ...] = (
     "MISSION_ITEM_INT float fields are compared after exact IEEE-754 binary32 packing.",
     "The sequence-zero home waypoint remains MAV_FRAME_GLOBAL (0).",
+    "Home altitude is read back from integer centimeters multiplied by binary32 0.01f.",
     "DO_CHANGE_SPEED frame 6 is read back as MAV_FRAME_GLOBAL (0).",
     "Navigation command frame 6 is read back as MAV_FRAME_GLOBAL_RELATIVE_ALT (3).",
     "NAV_LOITER_TIME param3 zero is read back as one.",
@@ -278,6 +279,9 @@ def canonicalize_expected(package: NativeMissionPackage) -> tuple[NativeMissionI
         frame = item.frame
         param3 = item.param3
         param4 = item.param4
+        altitude_m = item.altitude_m
+        if item.sequence == 0:
+            altitude_m = _home_altitude_readback(item.altitude_m)
         if item.sequence > 0:
             frame = (
                 _GLOBAL
@@ -300,7 +304,7 @@ def canonicalize_expected(package: NativeMissionPackage) -> tuple[NativeMissionI
                 param2=_float32(item.param2),
                 param3=_float32(param3),
                 param4=_float32(param4),
-                altitude_m=_float32(item.altitude_m),
+                altitude_m=_float32(altitude_m),
             )
         )
     return tuple(canonical)
@@ -423,6 +427,13 @@ def _validate_home(
             "numeric 0,0,0 cannot represent an unresolved home",
             home.vehicle,
         )
+    altitude_cm = round(home.altitude_m * 100.0)
+    if not math.isclose(home.altitude_m, altitude_cm / 100.0, abs_tol=1e-9):
+        return HomeUnresolved(
+            HomeUnresolvedReason.INVALID,
+            "home altitude must preserve the native centimeter value",
+            home.vehicle,
+        )
     if home.valid_for_s <= 0.0:
         return HomeUnresolved(
             HomeUnresolvedReason.INVALID, "home validity must be positive", home.vehicle
@@ -475,6 +486,11 @@ def _compare_item(
 
 def _float32(value: float) -> float:
     return float(struct.unpack("<f", struct.pack("<f", value))[0])
+
+
+def _home_altitude_readback(altitude_m: float) -> float:
+    altitude_cm = float(round(altitude_m * 100.0))
+    return _float32(_float32(altitude_cm) * _float32(0.01))
 
 
 def _require_integer(value: object, name: str) -> None:
