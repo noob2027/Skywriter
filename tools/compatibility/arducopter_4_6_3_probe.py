@@ -69,8 +69,10 @@ class EvidenceRecorder:
         mavlink_message = cast(Any, message)
         fields = mavlink_message.to_dict()
         header = getattr(mavlink_message, "_header", None)
+        packet = bytes(mavlink_message.get_msgbuf())
         fields["_wire"] = {
-            "magic": getattr(header, "magic", None),
+            "magic": packet[0] if packet else None,
+            "packet_length": len(packet),
             "sequence": getattr(header, "seq", None),
             "source_system": mavlink_message.get_srcSystem(),
             "source_component": mavlink_message.get_srcComponent(),

@@ -1,0 +1,7 @@
+b20620b9c2e4cfa4be46ad29c105b327a7581b97a940c635d24a0a6a9e0782cd  ./mavlink-messages.jsonl
+da4d31e37f805d476ffd862b06aa116a721bdb85d749c62412dd33d0668cf7bb  ./official/features.txt
+e84f633cb8dc42a89ec314745ca41a67f6a360f69c9fb01af1892084be6a57c9  ./official/firmware-version.txt
+62a923fa86dfdbec5fb33b4830555f0d3174edefd4f70839fe8ccf9754a8e390  ./official/git-version.txt
+e0725479496fe9e936c53d8da2bd56205c0741a3aa59586c3f7eb276c01e809a  ./probe-result.json
+b4539b8ee621c0ceff4ade75489658b81859c2b1df01f2c827f0508cfeb13025  ./sitl.stderr.log
+ca6cb131ed86047fb7532530be960569388246b4eeaf38625a8337369e96cd18  ./sitl.stdout.log

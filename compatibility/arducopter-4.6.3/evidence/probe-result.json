@@ -1,0 +1,1034 @@
+{
+  "autopilot_version": {
+    "board_version": 0,
+    "capabilities": 64495,
+    "flight_custom_version": [
+      51,
+      102,
+      99,
+      55,
+      48,
+      49,
+      49,
+      97
+    ],
+    "flight_sw_version": 67502976,
+    "mavpackettype": "AUTOPILOT_VERSION",
+    "middleware_custom_version": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "middleware_sw_version": 0,
+    "os_custom_version": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "os_sw_version": 0,
+    "product_id": 0,
+    "uid": 0,
+    "uid2": [
+      49,
+      56,
+      48,
+      55,
+      102,
+      50,
+      54,
+      51,
+      101,
+      102,
+      51,
+      56,
+      52,
+      97,
+      102,
+      50,
+      97,
+      0
+    ],
+    "vendor_id": 0
+  },
+  "compiler_comparison": {
+    "all_fields_match_after_float32_normalization": false,
+    "expected_count": 7,
+    "items": [
+      {
+        "fields": [
+          {
+            "compiler_value": 0,
+            "field": "sequence",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          },
+          {
+            "compiler_value": 6,
+            "field": "frame",
+            "matches": false,
+            "readback_value": 0,
+            "wire_expected": 6
+          },
+          {
+            "compiler_value": 22,
+            "field": "command",
+            "matches": false,
+            "readback_value": 16,
+            "wire_expected": 22
+          },
+          {
+            "compiler_value": true,
+            "field": "current",
+            "matches": false,
+            "readback_value": false,
+            "wire_expected": true
+          },
+          {
+            "compiler_value": true,
+            "field": "autocontinue",
+            "matches": true,
+            "readback_value": true,
+            "wire_expected": true
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param1",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param2",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param3",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param4",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0,
+            "field": "latitude_e7",
+            "matches": false,
+            "readback_value": 515007291,
+            "wire_expected": 0
+          },
+          {
+            "compiler_value": 0,
+            "field": "longitude_e7",
+            "matches": false,
+            "readback_value": -1246254,
+            "wire_expected": 0
+          },
+          {
+            "compiler_value": 22.5,
+            "field": "altitude_m",
+            "matches": false,
+            "readback_value": 15.09999942779541,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 22.5
+          },
+          {
+            "compiler_value": 0,
+            "field": "mission_type",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          }
+        ],
+        "sequence": 0
+      },
+      {
+        "fields": [
+          {
+            "compiler_value": 1,
+            "field": "sequence",
+            "matches": true,
+            "readback_value": 1,
+            "wire_expected": 1
+          },
+          {
+            "compiler_value": 6,
+            "field": "frame",
+            "matches": false,
+            "readback_value": 0,
+            "wire_expected": 6
+          },
+          {
+            "compiler_value": 178,
+            "field": "command",
+            "matches": true,
+            "readback_value": 178,
+            "wire_expected": 178
+          },
+          {
+            "compiler_value": false,
+            "field": "current",
+            "matches": true,
+            "readback_value": false,
+            "wire_expected": false
+          },
+          {
+            "compiler_value": true,
+            "field": "autocontinue",
+            "matches": true,
+            "readback_value": true,
+            "wire_expected": true
+          },
+          {
+            "compiler_value": 1.0,
+            "field": "param1",
+            "matches": true,
+            "readback_value": 1.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 1.0
+          },
+          {
+            "compiler_value": 8.25,
+            "field": "param2",
+            "matches": true,
+            "readback_value": 8.25,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 8.25
+          },
+          {
+            "compiler_value": -1.0,
+            "field": "param3",
+            "matches": true,
+            "readback_value": -1.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": -1.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param4",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0,
+            "field": "latitude_e7",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          },
+          {
+            "compiler_value": 0,
+            "field": "longitude_e7",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "altitude_m",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0,
+            "field": "mission_type",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          }
+        ],
+        "sequence": 1
+      },
+      {
+        "fields": [
+          {
+            "compiler_value": 2,
+            "field": "sequence",
+            "matches": true,
+            "readback_value": 2,
+            "wire_expected": 2
+          },
+          {
+            "compiler_value": 6,
+            "field": "frame",
+            "matches": false,
+            "readback_value": 3,
+            "wire_expected": 6
+          },
+          {
+            "compiler_value": 16,
+            "field": "command",
+            "matches": true,
+            "readback_value": 16,
+            "wire_expected": 16
+          },
+          {
+            "compiler_value": false,
+            "field": "current",
+            "matches": true,
+            "readback_value": false,
+            "wire_expected": false
+          },
+          {
+            "compiler_value": true,
+            "field": "autocontinue",
+            "matches": true,
+            "readback_value": true,
+            "wire_expected": true
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param1",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param2",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param3",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param4",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 515007292,
+            "field": "latitude_e7",
+            "matches": true,
+            "readback_value": 515007292,
+            "wire_expected": 515007292
+          },
+          {
+            "compiler_value": -1246254,
+            "field": "longitude_e7",
+            "matches": true,
+            "readback_value": -1246254,
+            "wire_expected": -1246254
+          },
+          {
+            "compiler_value": 30.0,
+            "field": "altitude_m",
+            "matches": true,
+            "readback_value": 30.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 30.0
+          },
+          {
+            "compiler_value": 0,
+            "field": "mission_type",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          }
+        ],
+        "sequence": 2
+      },
+      {
+        "fields": [
+          {
+            "compiler_value": 3,
+            "field": "sequence",
+            "matches": true,
+            "readback_value": 3,
+            "wire_expected": 3
+          },
+          {
+            "compiler_value": 6,
+            "field": "frame",
+            "matches": false,
+            "readback_value": 3,
+            "wire_expected": 6
+          },
+          {
+            "compiler_value": 19,
+            "field": "command",
+            "matches": true,
+            "readback_value": 19,
+            "wire_expected": 19
+          },
+          {
+            "compiler_value": false,
+            "field": "current",
+            "matches": true,
+            "readback_value": false,
+            "wire_expected": false
+          },
+          {
+            "compiler_value": true,
+            "field": "autocontinue",
+            "matches": true,
+            "readback_value": true,
+            "wire_expected": true
+          },
+          {
+            "compiler_value": 15.0,
+            "field": "param1",
+            "matches": true,
+            "readback_value": 15.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 15.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param2",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param3",
+            "matches": false,
+            "readback_value": 1.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param4",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 515013640,
+            "field": "latitude_e7",
+            "matches": true,
+            "readback_value": 515013640,
+            "wire_expected": 515013640
+          },
+          {
+            "compiler_value": -1418900,
+            "field": "longitude_e7",
+            "matches": true,
+            "readback_value": -1418900,
+            "wire_expected": -1418900
+          },
+          {
+            "compiler_value": 35.0,
+            "field": "altitude_m",
+            "matches": true,
+            "readback_value": 35.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 35.0
+          },
+          {
+            "compiler_value": 0,
+            "field": "mission_type",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          }
+        ],
+        "sequence": 3
+      },
+      {
+        "fields": [
+          {
+            "compiler_value": 4,
+            "field": "sequence",
+            "matches": true,
+            "readback_value": 4,
+            "wire_expected": 4
+          },
+          {
+            "compiler_value": 6,
+            "field": "frame",
+            "matches": false,
+            "readback_value": 3,
+            "wire_expected": 6
+          },
+          {
+            "compiler_value": 18,
+            "field": "command",
+            "matches": true,
+            "readback_value": 18,
+            "wire_expected": 18
+          },
+          {
+            "compiler_value": false,
+            "field": "current",
+            "matches": true,
+            "readback_value": false,
+            "wire_expected": false
+          },
+          {
+            "compiler_value": true,
+            "field": "autocontinue",
+            "matches": true,
+            "readback_value": true,
+            "wire_expected": true
+          },
+          {
+            "compiler_value": 1.0,
+            "field": "param1",
+            "matches": true,
+            "readback_value": 1.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 1.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param2",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 25.0,
+            "field": "param3",
+            "matches": true,
+            "readback_value": 25.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 25.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param4",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 515033990,
+            "field": "latitude_e7",
+            "matches": true,
+            "readback_value": 515033990,
+            "wire_expected": 515033990
+          },
+          {
+            "compiler_value": -1195190,
+            "field": "longitude_e7",
+            "matches": true,
+            "readback_value": -1195190,
+            "wire_expected": -1195190
+          },
+          {
+            "compiler_value": 40.0,
+            "field": "altitude_m",
+            "matches": true,
+            "readback_value": 40.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 40.0
+          },
+          {
+            "compiler_value": 0,
+            "field": "mission_type",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          }
+        ],
+        "sequence": 4
+      },
+      {
+        "fields": [
+          {
+            "compiler_value": 5,
+            "field": "sequence",
+            "matches": true,
+            "readback_value": 5,
+            "wire_expected": 5
+          },
+          {
+            "compiler_value": 6,
+            "field": "frame",
+            "matches": false,
+            "readback_value": 3,
+            "wire_expected": 6
+          },
+          {
+            "compiler_value": 16,
+            "field": "command",
+            "matches": true,
+            "readback_value": 16,
+            "wire_expected": 16
+          },
+          {
+            "compiler_value": false,
+            "field": "current",
+            "matches": true,
+            "readback_value": false,
+            "wire_expected": false
+          },
+          {
+            "compiler_value": true,
+            "field": "autocontinue",
+            "matches": true,
+            "readback_value": true,
+            "wire_expected": true
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param1",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param2",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param3",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param4",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 515000001,
+            "field": "latitude_e7",
+            "matches": true,
+            "readback_value": 515000001,
+            "wire_expected": 515000001
+          },
+          {
+            "compiler_value": -1000000,
+            "field": "longitude_e7",
+            "matches": true,
+            "readback_value": -1000000,
+            "wire_expected": -1000000
+          },
+          {
+            "compiler_value": 12.0,
+            "field": "altitude_m",
+            "matches": true,
+            "readback_value": 12.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 12.0
+          },
+          {
+            "compiler_value": 0,
+            "field": "mission_type",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          }
+        ],
+        "sequence": 5
+      },
+      {
+        "fields": [
+          {
+            "compiler_value": 6,
+            "field": "sequence",
+            "matches": true,
+            "readback_value": 6,
+            "wire_expected": 6
+          },
+          {
+            "compiler_value": 6,
+            "field": "frame",
+            "matches": false,
+            "readback_value": 3,
+            "wire_expected": 6
+          },
+          {
+            "compiler_value": 21,
+            "field": "command",
+            "matches": true,
+            "readback_value": 21,
+            "wire_expected": 21
+          },
+          {
+            "compiler_value": false,
+            "field": "current",
+            "matches": true,
+            "readback_value": false,
+            "wire_expected": false
+          },
+          {
+            "compiler_value": true,
+            "field": "autocontinue",
+            "matches": true,
+            "readback_value": true,
+            "wire_expected": true
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param1",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param2",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param3",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "param4",
+            "matches": false,
+            "readback_value": 1.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 515000001,
+            "field": "latitude_e7",
+            "matches": true,
+            "readback_value": 515000001,
+            "wire_expected": 515000001
+          },
+          {
+            "compiler_value": -1000000,
+            "field": "longitude_e7",
+            "matches": true,
+            "readback_value": -1000000,
+            "wire_expected": -1000000
+          },
+          {
+            "compiler_value": 0.0,
+            "field": "altitude_m",
+            "matches": true,
+            "readback_value": 0.0,
+            "wire_delta_from_compiler": 0.0,
+            "wire_expected": 0.0
+          },
+          {
+            "compiler_value": 0,
+            "field": "mission_type",
+            "matches": true,
+            "readback_value": 0,
+            "wire_expected": 0
+          }
+        ],
+        "sequence": 6
+      }
+    ],
+    "readback_count": 7
+  },
+  "continue_ack": {
+    "command": 193,
+    "mavpackettype": "COMMAND_ACK",
+    "progress": 0,
+    "result": 4,
+    "result_name": "MAV_RESULT_FAILED",
+    "result_param2": 0,
+    "target_component": 190,
+    "target_system": 255
+  },
+  "final_statustext": [
+    {
+      "chunk_seq": 0,
+      "id": 0,
+      "mavpackettype": "STATUSTEXT",
+      "severity": 6,
+      "text": "Failed to resume"
+    }
+  ],
+  "home_position": {
+    "altitude": 15100,
+    "approach_x": 0.0,
+    "approach_y": 0.0,
+    "approach_z": 0.0,
+    "latitude": 515007291,
+    "longitude": -1246254,
+    "mavpackettype": "HOME_POSITION",
+    "q": [
+      "nan",
+      "nan",
+      "nan",
+      "nan"
+    ],
+    "time_usec": 20021988,
+    "x": 0.0,
+    "y": 0.0,
+    "z": -0.0
+  },
+  "mission_after_upload": {
+    "count": 7,
+    "items": [
+      {
+        "altitude_m": 15.09999942779541,
+        "autocontinue": true,
+        "command": 16,
+        "current": false,
+        "frame": 0,
+        "latitude_e7": 515007291,
+        "longitude_e7": -1246254,
+        "mission_type": 0,
+        "param1": 0.0,
+        "param2": 0.0,
+        "param3": 0.0,
+        "param4": 0.0,
+        "sequence": 0
+      },
+      {
+        "altitude_m": 0.0,
+        "autocontinue": true,
+        "command": 178,
+        "current": false,
+        "frame": 0,
+        "latitude_e7": 0,
+        "longitude_e7": 0,
+        "mission_type": 0,
+        "param1": 1.0,
+        "param2": 8.25,
+        "param3": -1.0,
+        "param4": 0.0,
+        "sequence": 1
+      },
+      {
+        "altitude_m": 30.0,
+        "autocontinue": true,
+        "command": 16,
+        "current": false,
+        "frame": 3,
+        "latitude_e7": 515007292,
+        "longitude_e7": -1246254,
+        "mission_type": 0,
+        "param1": 0.0,
+        "param2": 0.0,
+        "param3": 0.0,
+        "param4": 0.0,
+        "sequence": 2
+      },
+      {
+        "altitude_m": 35.0,
+        "autocontinue": true,
+        "command": 19,
+        "current": false,
+        "frame": 3,
+        "latitude_e7": 515013640,
+        "longitude_e7": -1418900,
+        "mission_type": 0,
+        "param1": 15.0,
+        "param2": 0.0,
+        "param3": 1.0,
+        "param4": 0.0,
+        "sequence": 3
+      },
+      {
+        "altitude_m": 40.0,
+        "autocontinue": true,
+        "command": 18,
+        "current": false,
+        "frame": 3,
+        "latitude_e7": 515033990,
+        "longitude_e7": -1195190,
+        "mission_type": 0,
+        "param1": 1.0,
+        "param2": 0.0,
+        "param3": 25.0,
+        "param4": 0.0,
+        "sequence": 4
+      },
+      {
+        "altitude_m": 12.0,
+        "autocontinue": true,
+        "command": 16,
+        "current": false,
+        "frame": 3,
+        "latitude_e7": 515000001,
+        "longitude_e7": -1000000,
+        "mission_type": 0,
+        "param1": 0.0,
+        "param2": 0.0,
+        "param3": 0.0,
+        "param4": 0.0,
+        "sequence": 5
+      },
+      {
+        "altitude_m": 0.0,
+        "autocontinue": true,
+        "command": 21,
+        "current": false,
+        "frame": 3,
+        "latitude_e7": 515000001,
+        "longitude_e7": -1000000,
+        "mission_type": 0,
+        "param1": 0.0,
+        "param2": 0.0,
+        "param3": 0.0,
+        "param4": 1.0,
+        "sequence": 6
+      }
+    ]
+  },
+  "mission_before_upload": {
+    "count": 0,
+    "items": []
+  },
+  "mission_upload": {
+    "ack": {
+      "mavpackettype": "MISSION_ACK",
+      "mission_type": 0,
+      "target_component": 190,
+      "target_system": 255,
+      "type": 0
+    },
+    "request_messages": [
+      "MISSION_REQUEST",
+      "MISSION_REQUEST",
+      "MISSION_REQUEST",
+      "MISSION_REQUEST",
+      "MISSION_REQUEST",
+      "MISSION_REQUEST",
+      "MISSION_REQUEST"
+    ],
+    "result_name": "MAV_MISSION_ACCEPTED",
+    "sent_protocol": "MISSION_ITEM_INT",
+    "sent_sequences": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ]
+  },
+  "pause_ack": {
+    "command": 193,
+    "mavpackettype": "COMMAND_ACK",
+    "progress": 0,
+    "result": 4,
+    "result_name": "MAV_RESULT_FAILED",
+    "result_param2": 0,
+    "target_component": 190,
+    "target_system": 255
+  },
+  "prearm_request_ack": {
+    "command": 401,
+    "mavpackettype": "COMMAND_ACK",
+    "progress": 0,
+    "result": 0,
+    "result_name": "MAV_RESULT_ACCEPTED",
+    "result_param2": 0,
+    "target_component": 190,
+    "target_system": 255
+  },
+  "prearm_statustext": [
+    {
+      "chunk_seq": 0,
+      "id": 0,
+      "mavpackettype": "STATUSTEXT",
+      "severity": 2,
+      "text": "PreArm: Motors: Check frame class and type"
+    },
+    {
+      "chunk_seq": 0,
+      "id": 0,
+      "mavpackettype": "STATUSTEXT",
+      "severity": 6,
+      "text": "EKF3 IMU1 origin set"
+    }
+  ],
+  "probe": {
+    "dialect": "ardupilotmega",
+    "fixture": "tests/fixtures/missions/mixed.json",
+    "pymavlink_version": "2.4.41",
+    "wire_protocol": "2.0"
+  },
+  "safety": {
+    "arm_requested": false,
+    "mission_target": "ephemeral stock SITL only",
+    "mode_changed": false,
+    "parameter_writes": 0,
+    "real_hardware": false
+  },
+  "sitl": {
+    "command": [
+      "/home/runner/work/_temp/task005a/arducopter",
+      "--model",
+      "quad",
+      "--home",
+      "51.5007292,-0.1246254,15,0",
+      "--speedup",
+      "1"
+    ],
+    "home": "51.5007292,-0.1246254,15,0"
+  },
+  "sitl_exit_code_after_probe_termination": 0,
+  "status": "passed",
+  "target": {
+    "component": 1,
+    "system": 1
+  },
+  "vehicle_heartbeat": {
+    "autopilot": 3,
+    "base_mode": 89,
+    "custom_mode": 0,
+    "mavlink_version": 3,
+    "mavpackettype": "HEARTBEAT",
+    "system_status": 1,
+    "type": 2
+  }
+}
