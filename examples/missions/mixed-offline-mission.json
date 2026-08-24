@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "skywriter-task-005-mixed",
+  "settings": {
+    "takeoff_altitude_m": 22.5,
+    "cruise_speed_m_s": 8.25,
+    "obstacle_warning_acknowledged": true
+  },
+  "actions": [
+    {
+      "type": "proceed",
+      "point": {
+        "latitude_deg": 51.5007292,
+        "longitude_deg": -0.1246254
+      },
+      "altitude_m": 30.0
+    },
+    {
+      "type": "hold",
+      "point": {
+        "latitude_deg": 51.501364,
+        "longitude_deg": -0.14189
+      },
+      "altitude_m": 35.0,
+      "hold_time_s": 15.0
+    },
+    {
+      "type": "circle",
+      "point": {
+        "latitude_deg": 51.503399,
+        "longitude_deg": -0.119519
+      },
+      "altitude_m": 40.0,
+      "radius_m": 25.0,
+      "turns": 1,
+      "direction": "clockwise"
+    },
+    {
+      "type": "land",
+      "point": {
+        "latitude_deg": 51.5000001,
+        "longitude_deg": -0.1
+      },
+      "approach_altitude_m": 12.0
+    }
+  ]
+}
