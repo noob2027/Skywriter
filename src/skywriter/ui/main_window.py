@@ -2,8 +2,7 @@
 
 import logging
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QMainWindow, QSizePolicy, QTabWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QMainWindow, QSizePolicy, QTabWidget
 
 from skywriter.application import (
     ApplicationSnapshot,
@@ -14,34 +13,11 @@ from skywriter.application import (
 )
 from skywriter.config import DEFAULT_CONFIG, ApplicationConfig
 from skywriter.result import is_ok
+from skywriter.ui.flight import FlightTelemetryWidget
 from skywriter.ui.offline_workspace import OfflineMissionWorkspace
+from skywriter.ui.preflight import PreflightTelemetryWidget
 
 LOGGER = logging.getLogger("skywriter.ui")
-
-
-class PlaceholderView(QWidget):
-    """A clearly labeled placeholder for a later bounded task."""
-
-    def __init__(self, title: str, description: str) -> None:
-        super().__init__()
-        self.setObjectName(f"{title.lower()}View")
-
-        heading = QLabel(title)
-        heading.setObjectName("viewHeading")
-        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        heading.setStyleSheet("font-size: 26px; font-weight: 600;")
-
-        detail = QLabel(description)
-        detail.setObjectName("viewDescription")
-        detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        detail.setWordWrap(True)
-        detail.setStyleSheet("color: #5d6673; font-size: 14px;")
-
-        layout = QVBoxLayout(self)
-        layout.addStretch()
-        layout.addWidget(heading)
-        layout.addWidget(detail)
-        layout.addStretch()
 
 
 class MainWindow(QMainWindow):
@@ -65,14 +41,10 @@ class MainWindow(QMainWindow):
         self._tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._mission_workspace = OfflineMissionWorkspace()
         self._tabs.addTab(self._mission_workspace, "Builder")
-        self._tabs.addTab(
-            PlaceholderView("Preflight", "Readiness workspace placeholder — Task 001 foundation."),
-            "Preflight",
-        )
-        self._tabs.addTab(
-            PlaceholderView("Flight", "Operations workspace placeholder — Task 001 foundation."),
-            "Flight",
-        )
+        self._preflight_telemetry = PreflightTelemetryWidget()
+        self._flight_telemetry = FlightTelemetryWidget()
+        self._tabs.addTab(self._preflight_telemetry, "Preflight")
+        self._tabs.addTab(self._flight_telemetry, "Flight")
         self._tabs.currentChanged.connect(self._select_view)
         self.setCentralWidget(self._tabs)
         self.statusBar().showMessage("Offline mission builder ready — no vehicle link")
@@ -88,6 +60,14 @@ class MainWindow(QMainWindow):
         """Return the production offline workflow mounted in the Builder tab."""
 
         return self._mission_workspace
+
+    @property
+    def preflight_telemetry(self) -> PreflightTelemetryWidget:
+        return self._preflight_telemetry
+
+    @property
+    def flight_telemetry(self) -> FlightTelemetryWidget:
+        return self._flight_telemetry
 
     def _select_view(self, index: int) -> None:
         if not 0 <= index < len(self._VIEW_ORDER):
