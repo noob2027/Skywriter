@@ -16,8 +16,6 @@ jobs:
     timeout-minutes: 15
     env:
       MAVLINK20: "1"
-      SITL_BINARY: ${{ runner.temp }}/skywriter-sitl/arducopter
-      SITL_EVIDENCE_ROOT: ${{ runner.temp }}/sitl-evidence
 
     steps:
       - uses: actions/checkout@v4
@@ -41,10 +39,10 @@ jobs:
           key: arducopter-sitl-linux-x86_64-7862662092edc2861fc03da3d6fb2f0136d1670e563ca324eb52c1a324d1e14b
       - name: Acquire and verify exact official stock binary
         run: |
-          mkdir -p "$SITL_EVIDENCE_ROOT"
+          mkdir -p "$RUNNER_TEMP/sitl-evidence"
           python -m scripts.sitl.acquire \
-            --destination "$SITL_BINARY" \
-            --record "$SITL_EVIDENCE_ROOT/acquisition.json"
+            --destination "$RUNNER_TEMP/skywriter-sitl/arducopter" \
+            --record "$RUNNER_TEMP/sitl-evidence/acquisition.json"
       - name: Validate platform-independent harness contract
         run: python -m pytest tests/sitl/test_harness_contract.py -q --durations=10
       - name: Run pinned smoke evidence 1
