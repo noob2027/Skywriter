@@ -93,6 +93,29 @@ probe dependency set. It runs one platform-independent contract suite and two fr
 SITL processes. Exact observed durations and artifact sizes are recorded by each CI
 run and its uploaded `result.json` files.
 
+Task 006 acceptance run
+[`32775510581`](https://github.com/noob2027/Skywriter/actions/runs/32775510581)
+completed the Ubuntu job in 30 seconds on branch commit
+`d24e1832758c0c4f848b6a45f6ae3d0edad1a419`. The contract suite passed 6 tests in
+0.05 seconds. Fresh SITL run 1 passed in 1.12 seconds (1.101 seconds recorded by the
+harness) on base port 26000; fresh run 2 passed in 1.11 seconds (1.097 seconds recorded
+by the harness) on base port 26100. Both reported the exact target above, disarmed
+`base_mode=89`, mission count 0/type 0, bounded SIGTERM exit `-15`, and
+`ports_released=true`.
+
+The uncompressed retained evidence is 106,510 bytes. Uploaded artifact
+`pinned-sitl-32775510581-1` is 9,793 bytes with archive SHA-256
+`53127403ffae99ec1d2a02cfd6b8239e6c25a4dbbcf1d41b1c0415db62c58539`.
+The acquisition record, both result documents, protocol logs, process logs, and both
+generated EEPROM files passed their recorded SHA-256 checks.
+
+The matching Windows run
+[`32775510477`](https://github.com/noob2027/Skywriter/actions/runs/32775510477)
+completed in 73 seconds: formatting checked 80 files, lint passed, strict typing passed
+55 source files, the full suite passed 154 tests in 6.83 seconds with the one explicit
+Linux-artifact smoke skip, and the offscreen application smoke exited successfully.
+The skip is replaced, not bypassed, by the dedicated Ubuntu job's two real executions.
+
 This is startup/readiness evidence, not mission execution or production transport
 evidence. It does not cover Windows execution, physical USB, Matek board-target
 mapping, SiK radios, telemetry, uploads, commands, parameters, arming, modes, or real
