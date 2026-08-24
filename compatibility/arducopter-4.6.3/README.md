@@ -54,8 +54,8 @@ Official sources:
 - [Pinned stock SITL directory](https://firmware.ardupilot.org/Copter/stable-4.6.3/SITL_x86_64_linux_gnu/)
 
 Every downloaded or retained artifact and its hash is listed in `manifest.json` or
-`evidence/SHA256SUMS`. The successful workflow artifact itself has GitHub-recorded
-SHA-256 `9e11894bcd773a008835391f2603bc8c35256a141e971c7dc4a831bbd3c31b40`.
+`evidence/SHA256SUMS`. The final successful workflow artifact itself has GitHub-recorded
+SHA-256 `44d05a1fe8e92a72a94fd92932fc1d5d2f22d6a5d4fa97252e590a40c0f36dde`.
 
 ## MAVLink and probe dependency pin
 
@@ -76,9 +76,12 @@ Every relevant received packet in the final trace used MAVLink 2 magic byte 253.
 
 ## Probe and raw evidence
 
-The final [stock SITL run](https://github.com/noob2027/Skywriter/actions/runs/32767813658)
-completed successfully in 49 seconds at probe commit
-`576f9f0d221bbca00d6218ca22b65387f37aa0ad`. The immediately preceding
+The final [stock SITL run](https://github.com/noob2027/Skywriter/actions/runs/32771294947)
+completed successfully in 51 seconds at completed-boundary commit
+`723dc1c6608adc0dadd3adf367c0b4020d6af5b5`. The preceding
+[successful boundary run](https://github.com/noob2027/Skywriter/actions/runs/32767813658)
+completed in 49 seconds at `576f9f0d221bbca00d6218ca22b65387f37aa0ad`.
+The first
 [diagnostic run](https://github.com/noob2027/Skywriter/actions/runs/32767540511)
 failed closed in 42 seconds because the separately verified native home altitude was
 one binary32 step below ordinary float32 packing. The exact value reproduced
@@ -270,30 +273,25 @@ over an older editable installation in that shared validation environment.
 
 | Check | Exact command | Result | Wall duration |
 | --- | --- | --- | ---: |
-| Task evidence tests | `python -m pytest tests/compatibility/test_arducopter_4_6_3_evidence.py -q` | 5 passed (pytest 0.06s) | 0.797s |
-| Full Windows/offscreen suite | `$env:QT_QPA_PLATFORM='offscreen'; $env:PYTHONPATH=(Resolve-Path 'src').Path; python -m pytest` | 117 passed (pytest 10.69s) | 11.738s |
-| Formatting | `python -m ruff format --check .` | 70 files already formatted | 0.249s |
-| Lint | `python -m ruff check .` | passed | 0.179s |
-| Static typing | `python -m mypy` | 46 source files, no issues | 0.668s |
-| Probe syntax | `python -m py_compile tools/compatibility/arducopter_4_6_3_probe.py` | passed | 0.180s |
-| Offscreen smoke | `$env:QT_QPA_PLATFORM='offscreen'; $env:PYTHONPATH=(Resolve-Path 'src').Path; python -c "from skywriter.main import run; raise SystemExit(run(['skywriter-task005a'], close_after_ms=0))"` | exit 0 | 1.066s |
+| Boundary and evidence tests | `$env:PYTHONPATH=(Resolve-Path 'src').Path; python -m pytest tests/unit/compatibility/test_arducopter_4_6_3.py tests/compatibility/test_arducopter_4_6_3_evidence.py -q` | 35 passed (pytest 0.22s) | 0.990s |
+| Full Windows/offscreen suite | `$env:QT_QPA_PLATFORM='offscreen'; $env:PYTHONPATH=(Resolve-Path 'src').Path; python -m pytest` | 148 passed (pytest 7.78s) | 8.618s |
+| Formatting | `python -m ruff format --check .` | 73 files already formatted | 0.168s |
+| Lint | `python -m ruff check .` | passed | 0.142s |
+| Static typing | `$env:PYTHONPATH=(Resolve-Path 'src').Path; python -m mypy` | 49 source files, no issues | 0.662s |
+| Probe syntax | `python -m py_compile tools/compatibility/arducopter_4_6_3_probe.py` | passed | 0.174s |
+| Offscreen smoke | `$env:QT_QPA_PLATFORM='offscreen'; $env:PYTHONPATH=(Resolve-Path 'src').Path; python -c "from skywriter.main import run; raise SystemExit(run(['skywriter-task005a-remediation'], close_after_ms=0))"` | exit 0 | 0.975s |
 
-The stock SITL probe ran three times on GitHub `ubuntu-24.04`: one 49-second
-fail-closed diagnostic that exposed legacy `MISSION_REQUEST`, followed by two
-successful complete runs of 55 and 54 seconds. The final run is the retained
-wire-level evidence. Thus the complete improved probe passed 2/2 repetitions;
-the earlier failure is preserved as investigation history, not counted as a
-passing repetition.
-
-An initial local full-suite invocation without the `PYTHONPATH` override stopped
-during collection because the shared venv referenced an older Skywriter
-worktree. No tests executed in that invalid environment. The exact-current-tree
-rerun above passed; repository CI installs the checked-out project editable and
-does not use that shared local venv.
+The remediated stock-SITL boundary passed 2/2 complete GitHub `ubuntu-24.04` runs:
+49 seconds ([run 32767813658](https://github.com/noob2027/Skywriter/actions/runs/32767813658))
+and 51 seconds ([final retained run 32771294947](https://github.com/noob2027/Skywriter/actions/runs/32771294947)).
+The preceding 42-second diagnostic run failed closed on the exact home-altitude
+normalization and led to the narrow evidence-backed whitelist entry; it was not retried
+unchanged or hidden as a passing run.
 
 ## Rollback
 
-This change adds only compatibility evidence, a probe-only lock and script, tests,
-and a manually triggered workflow. Roll back by reverting the Task 005A commit.
-No firmware, production dependency, domain/compiler/UI behavior, saved user
-mission, hardware state, or external vehicle state requires restoration.
+Revert this remediation PR to remove the pure compatibility package, its tests, and the
+updated evidence/recommendation. That restores the accepted Task 005A rejection record
+and re-blocks Tasks 006–008; it does not require changing the logical compiler. No
+firmware, runtime dependency, UI behavior, saved mission, hardware state, or external
+vehicle state requires restoration because this work performed no production I/O.
