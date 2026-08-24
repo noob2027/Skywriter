@@ -1,0 +1,9 @@
+bind port 5760 for SERIAL0
+SERIAL0 on TCP port 5760
+bind port 5762 for SERIAL1
+SERIAL1 on TCP port 5762
+bind port 5763 for SERIAL2
+SERIAL2 on TCP port 5763
+validate_structures:516: Validating structures
+Waiting for internal clock bits to be set (current=0x00)
+Exitting

@@ -1,0 +1,9 @@
+# Probe-only Linux/Python 3.12 lock. This is not a SKYWriter runtime dependency.
+# Artifacts were resolved from PyPI for the official ArduPilot pymavlink release
+# whose version matches the pymavlink submodule recorded by Copter-4.6.3.
+future==1.0.0 \
+    --hash=sha256:929292d34f5872e70396626ef385ec22355a1fae8ad29e1a734c3e43f9fbc216
+lxml==5.3.2 \
+    --hash=sha256:bdc13911db524bd63f37b0103af014b7161427ada41f1b0b3c9b5b5a9c1ca927
+pymavlink==2.4.41 \
+    --hash=sha256:5cbc975a1192359d60ea75bede789486a84e50d2ea07435b33a32ee5cb13c11f

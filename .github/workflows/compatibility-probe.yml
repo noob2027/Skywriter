@@ -1,0 +1,65 @@
+name: Task 005A compatibility probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stock-sitl-probe:
+    name: Stock Copter 4.6.3 / Ubuntu / Python 3.12
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: compatibility/arducopter-4.6.3/requirements-probe.lock
+      - name: Install exact probe dependencies
+        run: >-
+          python -m pip install --require-hashes
+          --requirement compatibility/arducopter-4.6.3/requirements-probe.lock
+      - name: Acquire and verify official stock SITL inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/task005a" compatibility-evidence/official
+          base=https://firmware.ardupilot.org/Copter/stable-4.6.3/SITL_x86_64_linux_gnu
+          curl --fail --location --silent --show-error "$base/arducopter" \
+            --output "$RUNNER_TEMP/task005a/arducopter"
+          curl --fail --location --silent --show-error "$base/features.txt" \
+            --output compatibility-evidence/official/features.txt
+          curl --fail --location --silent --show-error "$base/firmware-version.txt" \
+            --output compatibility-evidence/official/firmware-version.txt
+          curl --fail --location --silent --show-error "$base/git-version.txt" \
+            --output compatibility-evidence/official/git-version.txt
+          echo "7862662092edc2861fc03da3d6fb2f0136d1670e563ca324eb52c1a324d1e14b  $RUNNER_TEMP/task005a/arducopter" | sha256sum --check
+          echo "da4d31e37f805d476ffd862b06aa116a721bdb85d749c62412dd33d0668cf7bb  compatibility-evidence/official/features.txt" | sha256sum --check
+          echo "e84f633cb8dc42a89ec314745ca41a67f6a360f69c9fb01af1892084be6a57c9  compatibility-evidence/official/firmware-version.txt" | sha256sum --check
+          echo "62a923fa86dfdbec5fb33b4830555f0d3174edefd4f70839fe8ccf9754a8e390  compatibility-evidence/official/git-version.txt" | sha256sum --check
+          chmod 0700 "$RUNNER_TEMP/task005a/arducopter"
+      - name: Run isolated compatibility probe
+        run: >-
+          python tools/compatibility/arducopter_4_6_3_probe.py
+          --sitl "$RUNNER_TEMP/task005a/arducopter"
+          --fixture tests/fixtures/missions/mixed.json
+          --output compatibility-evidence
+      - name: Hash retained evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd compatibility-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+      - name: Retain raw evidence without redistributing firmware
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-005a-copter-4.6.3-evidence
+          path: compatibility-evidence
+          if-no-files-found: error
+          retention-days: 30
