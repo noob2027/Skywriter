@@ -84,7 +84,12 @@ class FakePort:
         *,
         duration_s: float,
         cancellation: CancellationView,
+        require_home: bool,
     ) -> TelemetrySnapshot:
+        if require_home and self.telemetry.home.value is None:
+            raise ConnectedPortFailure(
+                ConnectedFailureCode.HOME_UNRESOLVED, "home readiness failed"
+            )
         return self.telemetry
 
 

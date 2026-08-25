@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import pytest
+
+from skywriter.application.connected import ConnectedFailureCode, ConnectedPortFailure
 from skywriter.application.telemetry import TelemetryFreshness, TelemetryLinkKind
 from skywriter.infrastructure.mavlink.connected import ConnectedMavlinkPort
 from skywriter.infrastructure.mavlink.connection import (
@@ -106,7 +109,12 @@ def test_port_composes_discovery_and_read_only_telemetry_for_one_target() -> Non
             None,
         ]
     )
-    snapshot = port.collect_telemetry(targets[0], duration_s=1.0, cancellation=cancellation)
+    snapshot = port.collect_telemetry(
+        targets[0],
+        duration_s=1.0,
+        cancellation=cancellation,
+        require_home=True,
+    )
 
     assert snapshot.vehicle_identity == targets[0].vehicle.value
     assert snapshot.heartbeat.freshness(clock.now()) is TelemetryFreshness.FRESH
@@ -128,3 +136,22 @@ def test_connected_adapter_exposes_no_generic_command_or_parameter_surface() -> 
         for name in public
         for fragment in ("command", "parameter", "arm", "mode", "rtl", "land")
     )
+
+
+def test_required_home_readiness_fails_typed_instead_of_returning_partial_snapshot() -> None:
+    clock = FakeClock()
+    link = ReceiveOnlyScriptedMissionLink(clock, [heartbeat(), None])
+    port = ConnectedMavlinkPort(link, clock=clock)
+    cancellation = NeverCancelled()
+    targets = port.discover(duration_s=1.0, cancellation=cancellation)
+    link.events.extend([heartbeat(), None])
+
+    with pytest.raises(ConnectedPortFailure) as raised:
+        port.collect_telemetry(
+            targets[0],
+            duration_s=1.0,
+            cancellation=cancellation,
+            require_home=True,
+        )
+
+    assert raised.value.code is ConnectedFailureCode.HOME_UNRESOLVED

@@ -38,6 +38,11 @@ compiled
   -> SIK_VERIFIED
 ```
 
+The upload preparation path uses an explicit receive-side readiness handshake: it exits
+only after both the selected-target heartbeat and `HOME_POSITION` have crossed the real
+telemetry adapter. Reaching the bounded deadline without Home returns typed
+`HOME_UNRESOLVED`; a partial snapshot is never treated as uploadable.
+
 An edit clears the translated package and verification. Cancellation, disconnect,
 stale identity, wrong identity, missing/stale/wrong-vehicle Home, unexpected armed state,
 negative acknowledgment, retry exhaustion, protocol error, or any unapproved readback

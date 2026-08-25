@@ -189,6 +189,7 @@ class ConnectedVehiclePort(Protocol):
         *,
         duration_s: float,
         cancellation: CancellationView,
+        require_home: bool,
     ) -> TelemetrySnapshot: ...
 
 
@@ -428,13 +429,17 @@ class ConnectedMissionService:
         *,
         duration_s: float,
         cancellation: CancellationView,
+        require_home: bool = False,
     ) -> ConnectedMissionSnapshot:
         target = self._require_selected_port(port)
         if target is None:
             return self._snapshot
         try:
             telemetry = port.collect_telemetry(
-                target, duration_s=duration_s, cancellation=cancellation
+                target,
+                duration_s=duration_s,
+                cancellation=cancellation,
+                require_home=require_home,
             )
         except ConnectedPortFailure as error:
             return self._record_port_failure(error)

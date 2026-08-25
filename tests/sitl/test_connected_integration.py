@@ -107,6 +107,14 @@ def _wait_message(
 def _request_home_position(connection: Any) -> None:
     from pymavlink import mavutil
 
+    connection.mav.heartbeat_send(
+        int(mavutil.mavlink.MAV_TYPE_GCS),
+        int(mavutil.mavlink.MAV_AUTOPILOT_INVALID),
+        0,
+        0,
+        int(mavutil.mavlink.MAV_STATE_ACTIVE),
+        3,
+    )
     connection.mav.command_long_send(
         TARGET.system_id,
         TARGET.component_id,
@@ -295,7 +303,12 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     assert service.snapshot.onboard.item_count == 0
     service.confirm_replacement(True)
     _request_home_position(usb_connection)
-    service.refresh_telemetry(usb, duration_s=3.0, cancellation=cancellation)
+    service.refresh_telemetry(
+        usb,
+        duration_s=30.0,
+        cancellation=cancellation,
+        require_home=True,
+    )
     service.upload_and_verify(usb, now_s=clock.now(), cancellation=cancellation)
     assert service.snapshot.failure is None
     assert service.snapshot.verification_state is ConnectedVerificationState.USB_VERIFIED
@@ -319,7 +332,12 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     selected = service.snapshot.candidates[0]
     service.select_target(selected.system_id, selected.component_id, now_s=clock.now())
     _request_home_position(sik_connection)
-    service.refresh_telemetry(sik, duration_s=3.0, cancellation=cancellation)
+    service.refresh_telemetry(
+        sik,
+        duration_s=30.0,
+        cancellation=cancellation,
+        require_home=True,
+    )
     service.reverify_over_sik(sik, now_s=clock.now(), cancellation=cancellation)
     assert service.snapshot.failure is None
     sik_snapshot = service.snapshot

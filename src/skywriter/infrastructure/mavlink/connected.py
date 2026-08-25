@@ -12,7 +12,11 @@ from skywriter.application.connected import (
     MissionReadback,
     MissionTransferEvidence,
 )
-from skywriter.application.telemetry import TelemetryLinkKind, TelemetrySnapshot
+from skywriter.application.telemetry import (
+    TelemetryFreshness,
+    TelemetryLinkKind,
+    TelemetrySnapshot,
+)
 from skywriter.compatibility.arducopter_4_6_3 import NativeMissionPackage
 from skywriter.infrastructure.mavlink.connection import (
     Clock,
@@ -154,6 +158,7 @@ class ConnectedMavlinkPort:
         *,
         duration_s: float,
         cancellation: CancellationView,
+        require_home: bool,
     ) -> TelemetrySnapshot:
         if duration_s <= 0:
             raise ValueError("duration_s must be positive")
@@ -173,7 +178,20 @@ class ConnectedMavlinkPort:
                 raise ConnectedPortFailure(ConnectedFailureCode.CANCELLED, result.detail)
             if result.code is TelemetryIngestCode.DISCONNECTED:
                 raise ConnectedPortFailure(ConnectedFailureCode.DISCONNECTED, result.detail)
-        return poller.snapshot()
+            snapshot = poller.snapshot()
+            if (
+                require_home
+                and snapshot.heartbeat.freshness(self._clock.now()) is TelemetryFreshness.FRESH
+                and snapshot.home.freshness(self._clock.now()) is TelemetryFreshness.FRESH
+            ):
+                return snapshot
+        snapshot = poller.snapshot()
+        if require_home and snapshot.home.value is None:
+            raise ConnectedPortFailure(
+                ConnectedFailureCode.HOME_UNRESOLVED,
+                "fresh HOME_POSITION was not observed before the readiness deadline",
+            )
+        return snapshot
 
     def _candidate(self, target: ConnectedTarget) -> TargetCandidate:
         if target.link_kind is not self.link_kind:
