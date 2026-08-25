@@ -85,20 +85,8 @@ def _wait_message(
         )
         if message is None:
             continue
-        if trace is not None and message.get_type() in {
-            "COMMAND_ACK",
-            "HEARTBEAT",
-            "MISSION_CURRENT",
-            "MISSION_ITEM_REACHED",
-            "STATUSTEXT",
-        }:
-            trace.append(
-                {
-                    "elapsed_monotonic_s": time.monotonic(),
-                    "message_type": str(message.get_type()),
-                    "fields": _json_safe(message.to_dict()),
-                }
-            )
+        if trace is not None:
+            _record_execution_message(trace, message)
         if message.get_type() != "BAD_DATA" and predicate(message):
             return message
     raise AssertionError("expected stock-SITL message was not received before the deadline")
@@ -153,19 +141,23 @@ def _normal_arm_then_auto(connection: Any, trace: list[dict[str, object]]) -> No
         )
         retry_deadline_s = min(deadline_s, time.monotonic() + 5.0)
         while time.monotonic() < retry_deadline_s:
-            heartbeat = _wait_message(
-                connection,
-                lambda message: (
-                    message.get_type() == "HEARTBEAT"
-                    and message.get_srcSystem() == TARGET.system_id
-                ),
-                timeout_s=min(1.5, retry_deadline_s - time.monotonic()),
-                trace=trace,
+            message = connection.recv_match(
+                blocking=True,
+                timeout=min(1.0, max(0.0, retry_deadline_s - time.monotonic())),
             )
-            armed = bool(int(heartbeat.base_mode) & int(mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED))
+            if message is None:
+                continue
+            _record_execution_message(trace, message)
+            if message.get_type() != "HEARTBEAT" or message.get_srcSystem() != TARGET.system_id:
+                continue
+            armed = bool(int(message.base_mode) & int(mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED))
             if armed:
                 break
-    assert armed, "stock SITL did not accept a normal, non-forced arm request"
+    if not armed:
+        raise AssertionError(
+            "stock SITL did not accept a normal, non-forced arm request; native trace="
+            + json.dumps(trace[-30:], sort_keys=True)
+        )
 
     connection.mav.set_mode_send(
         TARGET.system_id,
@@ -181,6 +173,24 @@ def _normal_arm_then_auto(connection: Any, trace: list[dict[str, object]]) -> No
         ),
         timeout_s=15.0,
         trace=trace,
+    )
+
+
+def _record_execution_message(trace: list[dict[str, object]], message: Any) -> None:
+    if message.get_type() not in {
+        "COMMAND_ACK",
+        "HEARTBEAT",
+        "MISSION_CURRENT",
+        "MISSION_ITEM_REACHED",
+        "STATUSTEXT",
+    }:
+        return
+    trace.append(
+        {
+            "elapsed_monotonic_s": time.monotonic(),
+            "message_type": str(message.get_type()),
+            "fields": _json_safe(message.to_dict()),
+        }
     )
 
 
