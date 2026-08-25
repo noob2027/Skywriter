@@ -66,7 +66,13 @@ def test_compatibility_envelopes_are_pure_and_transport_independent() -> None:
 
 
 def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
-    deferred_api_fragments = ("PARAM" + "_SET",)
+    deferred_api_fragments = (
+        "PARAM" + "_SET",
+        "command_" + "long_send",
+        "set_" + "mode_send",
+        "MAV_CMD_COMPONENT_" + "ARM_DISARM",
+        "MAV_CMD_NAV_" + "RETURN_TO_LAUNCH",
+    )
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(SOURCE_ROOT.rglob("*.py"))
     )

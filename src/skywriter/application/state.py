@@ -13,6 +13,7 @@ class ViewName(StrEnum):
     BUILDER = "builder"
     PREFLIGHT = "preflight"
     FLIGHT = "flight"
+    CONNECTED = "connected"
 
 
 @dataclass(frozen=True, slots=True)

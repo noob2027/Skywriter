@@ -636,6 +636,10 @@ def pinned_sitl_session(
         mavutil = cast(ModuleType, _mavutil())
         connection = _connect(endpoint.connection_string, startup_timeout_s, mavutil)
         readiness = _verify_readiness(connection, recorder, endpoint, response_timeout_s)
+        # Readiness owns no live endpoint after its bounded probe.  Releasing the
+        # probe client lets connected-integration tests exercise a clean restart.
+        connection.close()
+        connection = None
         yield readiness
     except BaseException as error:
         error_text = f"{type(error).__name__}: {error}"

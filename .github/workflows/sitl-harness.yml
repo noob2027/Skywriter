@@ -32,6 +32,7 @@ jobs:
             --require-hashes \
             --requirement compatibility/arducopter-4.6.3/requirements-probe.lock
           python -m pip install pytest==9.1.1
+          python -m pip install --no-deps --editable .
       - name: Restore verified stock binary cache
         uses: actions/cache@v4
         with:
@@ -57,6 +58,18 @@ jobs:
           SKYWRITER_SITL_EVIDENCE: ${{ runner.temp }}/sitl-evidence/run-2
           SKYWRITER_SITL_BASE_PORT: "26100"
         run: python -m pytest tests/sitl/test_pinned_sitl_smoke.py -q --durations=10
+      - name: Run connected integration evidence 1
+        env:
+          SKYWRITER_SITL_BINARY: ${{ runner.temp }}/skywriter-sitl/arducopter
+          SKYWRITER_SITL_EVIDENCE: ${{ runner.temp }}/sitl-evidence/connected-1
+          SKYWRITER_SITL_BASE_PORT: "26200"
+        run: python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
+      - name: Run connected integration evidence 2
+        env:
+          SKYWRITER_SITL_BINARY: ${{ runner.temp }}/skywriter-sitl/arducopter
+          SKYWRITER_SITL_EVIDENCE: ${{ runner.temp }}/sitl-evidence/connected-2
+          SKYWRITER_SITL_BASE_PORT: "26300"
+        run: python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
       - name: Preserve success and failure evidence
         if: always()
         uses: actions/upload-artifact@v4

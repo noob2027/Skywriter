@@ -1,0 +1,83 @@
+# Connected mission integration
+
+Task 009 composes the accepted offline compiler, ArduCopter 4.6.3 compatibility
+envelope, mission-only MAVLink adapter, read-only telemetry adapter, and pinned SITL
+harness. It does not merge those compartments or make the offline Builder depend on
+a connection or simulator.
+
+## Production boundary
+
+`ConnectedMissionService` owns immutable application state and accepts an injected
+`ConnectedVehiclePort`. `ConnectedMavlinkPort` delegates discovery to the accepted
+heartbeat selector, upload/download to `MissionProtocol`, success to exact
+compatibility-envelope verification, and telemetry to
+`TelemetryAdapter`/`TelemetryPoller`. It contains no protocol normalization and no
+generic send method.
+
+The connected UI emits typed intents only. Blocking discovery and mission transactions
+remain caller-worker responsibilities; Qt callbacks do not perform serial or MAVLink I/O.
+The visible surface contains mission inspection, explicit replacement approval,
+upload/readback verification, disconnect, telemetry refresh, and same-vehicle SiK
+re-verification. It contains no Arm, mode, AUTO, Pause/Resume, Land Here Now, RTL,
+parameter, or generic command control.
+
+## Fail-closed lifecycle
+
+```text
+compiled
+  -> USB discovered + exactly one target selected
+  -> existing mission downloaded and shown
+  -> operator explicitly confirms replacement
+  -> fresh selected-target heartbeat and HOME_POSITION
+  -> disarmed USB upload
+  -> accepted ACK + complete INT readback + normalized exact match
+  -> USB_VERIFIED
+  -> disconnect => REVERIFY_REQUIRED
+  -> SiK discovers the same vehicle identity
+  -> fresh telemetry + complete download + exact match
+  -> SIK_VERIFIED
+```
+
+An edit clears the translated package and verification. Cancellation, disconnect,
+stale identity, wrong identity, missing/stale/wrong-vehicle Home, unexpected armed state,
+negative acknowledgment, retry exhaustion, protocol error, or any unapproved readback
+difference cannot produce readiness. Reconnection by itself never restores readiness.
+
+## UI evidence
+
+![USB replacement review](screenshots/task-009/01-usb-replacement-review.png)
+
+![Same-vehicle SiK verification](screenshots/task-009/02-sik-verified.png)
+
+## Pinned SITL evidence
+
+The Ubuntu workflow runs the genuine connected test twice in fresh stock ArduCopter
+4.6.3 processes on isolated port blocks 26200 and 26300. Each run proves USB discovery,
+live Home translation, mission upload and exact readback, disconnect/restart over an
+explicitly classified SiK link, same-vehicle comparison, read-only telemetry, execution
+of Takeoff–Proceed–Hold–Circle–Land, and a protocol-independent raw reference readback.
+
+Stock Copter cannot execute a mission without normal arming and AUTO mode. The two
+necessary stimuli exist only in `tests/sitl/test_connected_integration.py`, use normal
+arm with force value zero, target ephemeral stock SITL, and are not reusable production
+or UI APIs. No parameter is written. Later Tasks 100–102 still own native pre-arm review,
+production normal-arm, and production AUTO-start compartments.
+
+Each evidence directory retains the verified binary identity, exact process command,
+SITL stdout/stderr, readiness protocol trace, `connected-integration.json`, teardown
+result, and `SHA256SUMS`, including on failure. The workflow uploads the complete tree
+for 30 days.
+
+## Platform and hardware limits
+
+The official pinned SITL artifact is Linux x86_64. Windows developers can run all
+deterministic application, protocol, UI, and harness-contract tests locally, but genuine
+stock-SITL execution occurs on the approved Ubuntu GitHub runner unless an equivalent
+Linux environment is installed. SITL is evidence infrastructure, never a runtime
+dependency.
+
+No real-hardware claim is made. Matek H7A3/H743 exact target/revision and USB interface
+mapping remain unresolved. USB-C describes connector shape, not the serial or bootloader
+interface. Holybro 933 MHz versus any SiK alternative, firmware, regulatory region, and
+baud plan also remain unresolved and require props-off hardware validation. Clone radios
+must not be assumed equivalent.

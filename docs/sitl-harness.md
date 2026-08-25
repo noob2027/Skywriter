@@ -46,6 +46,14 @@ The request-message command is used only as a read-only identity probe. The harn
 has no parameter write, mission upload, arm, mode, telemetry-presentation, or flight
 control behavior.
 
+That statement describes the reusable Task 006 readiness fixture. Task 009 adds a
+separate connected-integration test after readiness releases its probe connection. The
+test composes production mission/telemetry boundaries, uploads and verifies one mixed
+mission, reconnects, and executes it. Normal arm with force value zero and AUTO are
+confined to that test file because stock Copter requires both to execute a mission;
+they are not harness fixtures, production APIs, or UI controls. See
+[`connected-integration.md`](connected-integration.md).
+
 Each fixture yields the isolated endpoint, exact target identity, and clean mission
 state. Teardown closes MAVLink, terminates the entire SITL process group within a
 bounded deadline, escalates to a bounded kill only if necessary, confirms all ports
@@ -72,6 +80,7 @@ On a trusted Linux x86_64 machine, the same acquisition and smoke commands are:
 python -m pip install --require-hashes \
   --requirement compatibility/arducopter-4.6.3/requirements-probe.lock
 python -m pip install pytest==9.1.1
+python -m pip install --no-deps --editable .
 python -m scripts.sitl.acquire \
   --destination .cache/skywriter-sitl/arducopter \
   --record .cache/sitl-evidence/acquisition.json
@@ -82,6 +91,17 @@ SKYWRITER_SITL_BASE_PORT=26000 \
 python -m pytest tests/sitl/test_pinned_sitl_smoke.py -q --durations=10
 ```
 
+The Task 009 connected run uses the same environment with a fresh evidence directory
+and a separate port block:
+
+```bash
+MAVLINK20=1 \
+SKYWRITER_SITL_BINARY=.cache/skywriter-sitl/arducopter \
+SKYWRITER_SITL_EVIDENCE=.cache/sitl-evidence/connected-1 \
+SKYWRITER_SITL_BASE_PORT=26200 \
+python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
+```
+
 Use a different explicit block for a concurrent run, or omit
 `SKYWRITER_SITL_BASE_PORT` to lease the first free managed block. A requested block
 already leased or occupied fails closed instead of falling back silently.
@@ -89,9 +109,10 @@ already leased or occupied fails closed instead of falling back silently.
 ## Resource cost and limitations
 
 The CI job downloads about 7 MB on a cold artifact cache and installs the isolated
-probe dependency set. It runs one platform-independent contract suite and two fresh
-SITL processes. Exact observed durations and artifact sizes are recorded by each CI
-run and its uploaded `result.json` files.
+probe dependency set. It runs one platform-independent contract suite, two fresh
+readiness smoke processes, and two fresh connected-integration processes. Exact
+observed durations and artifact sizes are recorded by each CI run and its uploaded
+`result.json` files.
 
 Task 006 acceptance run
 [`32775510581`](https://github.com/noob2027/Skywriter/actions/runs/32775510581)
