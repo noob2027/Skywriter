@@ -265,6 +265,7 @@ def _json_safe(value: object) -> object:
 def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     sitl_endpoint: SitlEndpoint,
     sitl_target_identity: SitlTargetIdentity,
+    request: pytest.FixtureRequest,
 ) -> None:
     evidence_root = Path(os.environ["SKYWRITER_SITL_EVIDENCE"])
     clock = MonotonicClock()
@@ -279,6 +280,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         usb_connection,
         TransportDescriptor(sitl_endpoint.connection_string, TransportKind.USB),
     )
+    request.addfinalizer(usb_link.close)
     usb = ConnectedMavlinkPort(usb_link, clock=clock)
     service.discover(usb, duration_s=2.5, cancellation=cancellation)
     assert len(service.snapshot.candidates) == 1
@@ -310,6 +312,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         sik_connection,
         TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
     )
+    request.addfinalizer(sik_link.close)
     sik = ConnectedMavlinkPort(sik_link, clock=clock)
     service.discover(sik, duration_s=2.5, cancellation=cancellation)
     assert len(service.snapshot.candidates) == 1
