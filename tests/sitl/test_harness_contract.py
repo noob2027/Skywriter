@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -12,9 +13,13 @@ from scripts.sitl.pinned import (
     ArtifactIdentity,
     HarnessError,
     PortLease,
+    StartupDefaultsIdentity,
     VerifiedArtifact,
+    VerifiedStartupDefaults,
     build_command,
+    prearm_health_from_bitmaps,
     verify_artifact,
+    verify_startup_defaults,
 )
 
 
@@ -60,8 +65,9 @@ def test_artifact_verification_fails_closed(
 
 def test_command_uses_explicit_isolated_ports_and_deterministic_defaults() -> None:
     artifact = VerifiedArtifact("/tmp/arducopter", "a" * 64, 7_023_152)
+    startup_defaults = VerifiedStartupDefaults("/tmp/copter.parm", "b" * 64, 1_957, 1, 0)
 
-    command = build_command(artifact, 31_000)
+    command = build_command(artifact, startup_defaults, 31_000)
 
     assert command == (
         "/tmp/arducopter",
@@ -76,7 +82,9 @@ def test_command_uses_explicit_isolated_ports_and_deterministic_defaults() -> No
         "--irlock-port",
         "31013",
         "--model",
-        "quad",
+        "+",
+        "--defaults",
+        "/tmp/copter.parm",
         "--home",
         "51.5007292,-0.1246254,15,0",
         "--speedup",
@@ -87,6 +95,47 @@ def test_command_uses_explicit_isolated_ports_and_deterministic_defaults() -> No
         "1700000000",
         "--wipe",
     )
+
+
+def test_startup_defaults_require_exact_frame_configuration(tmp_path: Path) -> None:
+    defaults = tmp_path / "copter.parm"
+    defaults.write_text("FRAME_CLASS 0\nFRAME_TYPE 0\n", encoding="utf-8")
+    identity = StartupDefaultsIdentity(
+        url="https://example.invalid/copter.parm",
+        sha256=hashlib.sha256(defaults.read_bytes()).hexdigest(),
+        size_bytes=defaults.stat().st_size,
+        published_sitl_commit="b" * 40,
+        git_blob_sha="c" * 40,
+        frame_class=1,
+        frame_type=0,
+    )
+
+    with pytest.raises(HarnessError, match="startup frame mismatch"):
+        verify_startup_defaults(defaults, identity)
+
+
+def test_startup_defaults_are_required(tmp_path: Path) -> None:
+    with pytest.raises(HarnessError, match="startup defaults are missing"):
+        verify_startup_defaults(tmp_path / "missing.parm")
+
+
+@pytest.mark.parametrize(
+    ("present", "enabled", "health", "ready"),
+    [
+        (0, 0, 0, False),
+        (pinned.PREARM_CHECK_BIT, pinned.PREARM_CHECK_BIT, 0, False),
+        (
+            pinned.PREARM_CHECK_BIT,
+            pinned.PREARM_CHECK_BIT,
+            pinned.PREARM_CHECK_BIT,
+            True,
+        ),
+    ],
+)
+def test_prearm_health_requires_present_enabled_and_healthy_bits(
+    present: int, enabled: int, health: int, ready: bool
+) -> None:
+    assert prearm_health_from_bitmaps(present, enabled, health).ready is ready
 
 
 def test_port_lease_prevents_shared_block_and_releases_it() -> None:
@@ -107,6 +156,8 @@ def test_launch_failure_preserves_hashed_evidence(
 ) -> None:
     artifact = tmp_path / "arducopter"
     artifact.write_bytes(b"unused")
+    startup_defaults = tmp_path / "copter.parm"
+    startup_defaults.write_text("unused", encoding="utf-8")
     output_dir = tmp_path / "evidence"
 
     def accept_test_artifact(path: Path) -> VerifiedArtifact:
@@ -114,8 +165,13 @@ def test_launch_failure_preserves_hashed_evidence(
 
     monkeypatch.setattr(pinned, "verify_artifact", accept_test_artifact)
 
+    def accept_test_defaults(path: Path) -> VerifiedStartupDefaults:
+        return VerifiedStartupDefaults(str(path.resolve()), "b" * 64, path.stat().st_size, 1, 0)
+
+    monkeypatch.setattr(pinned, "verify_startup_defaults", accept_test_defaults)
+
     with pytest.raises(OSError):
-        with pinned.pinned_sitl_session(artifact, output_dir):
+        with pinned.pinned_sitl_session(artifact, startup_defaults, output_dir):
             pytest.fail("a failed launch must not yield a fixture")
 
     result = json.loads((output_dir / "result.json").read_text(encoding="utf-8"))

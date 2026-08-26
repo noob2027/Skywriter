@@ -18,7 +18,13 @@ from typing import Any
 
 import pytest
 
-from scripts.sitl.pinned import MAVLINK_DIALECT, SitlEndpoint, SitlTargetIdentity
+from scripts.sitl.pinned import (
+    MAVLINK_DIALECT,
+    PrearmHealth,
+    SitlEndpoint,
+    SitlTargetIdentity,
+    prearm_health_from_bitmaps,
+)
 from skywriter.application.connected import (
     ConnectedMissionService,
     ConnectedVerificationState,
@@ -118,9 +124,47 @@ def _request_home_position(connection: Any) -> None:
     )
 
 
-def _normal_arm_then_auto(connection: Any, trace: list[dict[str, object]]) -> None:
+def _wait_prearm_ready(
+    connection: Any,
+    trace: list[dict[str, object]],
+    *,
+    timeout_s: float = 30.0,
+) -> PrearmHealth:
+    deadline_s = time.monotonic() + timeout_s
+    last = PrearmHealth(present=False, enabled=False, healthy=False)
+    while time.monotonic() < deadline_s:
+        message = connection.recv_match(
+            blocking=True,
+            timeout=min(1.0, max(0.0, deadline_s - time.monotonic())),
+        )
+        if message is None:
+            continue
+        _record_execution_message(trace, message)
+        if message.get_type() != "SYS_STATUS" or message.get_srcSystem() != TARGET.system_id:
+            continue
+        last = prearm_health_from_bitmaps(
+            int(message.onboard_control_sensors_present),
+            int(message.onboard_control_sensors_enabled),
+            int(message.onboard_control_sensors_health),
+        )
+        if last.ready:
+            return last
+    raise AssertionError(
+        "stock SITL did not report a healthy read-only SYS_STATUS pre-arm bit; "
+        f"last={last}; native trace=" + json.dumps(trace[-30:], sort_keys=True)
+    )
+
+
+def _normal_arm_then_auto(
+    connection: Any,
+    trace: list[dict[str, object]],
+    prearm_health: PrearmHealth,
+) -> None:
     from pymavlink import mavutil
 
+    # Do not emit even a normal arm request until stock ArduPilot reports that
+    # its enabled pre-arm checks are healthy on the same live connection.
+    assert prearm_health.ready
     arm_command = int(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
     deadline_s = time.monotonic() + 60.0
     armed = False
@@ -183,6 +227,7 @@ def _record_execution_message(trace: list[dict[str, object]], message: Any) -> N
         "MISSION_CURRENT",
         "MISSION_ITEM_REACHED",
         "STATUSTEXT",
+        "SYS_STATUS",
     }:
         return
     trace.append(
@@ -280,6 +325,18 @@ def _json_safe(value: object) -> object:
     return str(value)
 
 
+def _write_execution_trace(path: Path, trace: list[dict[str, object]]) -> None:
+    path.write_text(
+        json.dumps(
+            {"schema": "skywriter-task-009-execution-trace-v1", "trace": trace},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     sitl_endpoint: SitlEndpoint,
     sitl_target_identity: SitlTargetIdentity,
@@ -356,7 +413,13 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     states.append(sik_snapshot.verification_state.value)
 
     execution_trace: list[dict[str, object]] = []
-    _normal_arm_then_auto(sik_connection, execution_trace)
+    execution_trace_path = evidence_root / "connected-execution-trace.json"
+    try:
+        prearm_health = _wait_prearm_ready(sik_connection, execution_trace)
+        _normal_arm_then_auto(sik_connection, execution_trace, prearm_health)
+    finally:
+        # Preserve native pre-arm/arm evidence even when the test fails closed.
+        _write_execution_trace(execution_trace_path, execution_trace)
     final_sequence = len(expected.items) - 1
     reached: set[int] = set()
     execution_deadline_s = time.monotonic() + 120.0
@@ -388,6 +451,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
                 },
             }
         )
+        _write_execution_trace(execution_trace_path, execution_trace)
         landed_disarmed = bool(
             heartbeat is not None
             and not heartbeat.armed
@@ -422,6 +486,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         "reference_verification": verification_to_document(reference),
         "execution": {
             "normal_arm_force_value": 0,
+            "prearm_health": asdict(prearm_health),
             "auto_stimulus_location": "tests/sitl/test_connected_integration.py only",
             "final_sequence": final_sequence,
             "observed_sequences": sorted(reached),

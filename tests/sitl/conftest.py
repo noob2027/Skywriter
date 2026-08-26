@@ -33,10 +33,16 @@ def sitl_readiness() -> Iterator[SitlReadiness]:
     if not sys.platform.startswith("linux"):
         pytest.skip("the approved stock ArduCopter 4.6.3 artifact is Linux x86_64 only")
     binary = _required_path("SKYWRITER_SITL_BINARY")
+    startup_defaults = _required_path("SKYWRITER_SITL_STARTUP_DEFAULTS")
     output_dir = _required_path("SKYWRITER_SITL_EVIDENCE")
     base_port_text = os.environ.get("SKYWRITER_SITL_BASE_PORT")
     base_port = int(base_port_text) if base_port_text is not None else None
-    with pinned_sitl_session(binary, output_dir, preferred_base_port=base_port) as readiness:
+    with pinned_sitl_session(
+        binary,
+        startup_defaults,
+        output_dir,
+        preferred_base_port=base_port,
+    ) as readiness:
         yield readiness
 
 

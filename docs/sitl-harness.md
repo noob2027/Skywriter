@@ -12,6 +12,10 @@ transport do not import or require this harness.
 | Official artifact | `Copter/stable-4.6.3/SITL_x86_64_linux_gnu/arducopter` |
 | Artifact size | `7,023,152` bytes |
 | Artifact SHA-256 | `7862662092edc2861fc03da3d6fb2f0136d1670e563ca324eb52c1a324d1e14b` |
+| Official Copter startup defaults | pinned source `Tools/autotest/default_params/copter.parm` |
+| Defaults size / SHA-256 | `1,957` bytes / `5e01345b45d1c6190b28bece5638bbdd4cf1cce35e05bbbf480ab24d2b51aa0e` |
+| Defaults Git blob | `17e5c25b26d972a2155b69d2262db08d5f749583` |
+| Effective frame | `FRAME_CLASS=1`, `FRAME_TYPE=0`, physics model `+` |
 | Official release tag commit | `92b0cd788ec29406f26c6f9c31d5ceedbd1cc538` |
 | Published stable SITL source commit | `3fc7011a7d3dc047cbb17d8bd98ee94577d144c6` |
 | Runtime `flight_sw_version` | `0x04060380` |
@@ -21,13 +25,25 @@ transport do not import or require this harness.
 
 The release-tag commit and published-binary commit are distinct official identities.
 The harness preserves both and verifies the downloaded executable before it is ever
-passed to the operating system for execution. A cached file is verified again on
-every run. No firmware source is built, patched, flashed, or redistributed.
+passed to the operating system for execution. The official startup defaults are
+downloaded from the immutable published-SITL source commit and independently verified
+before they can reach `--defaults`. A cached file is verified again on every run. No
+firmware source is built, patched, flashed, or redistributed.
+
+The direct stock binary does not perform `sim_vehicle.py`'s frame selection on its own.
+At the pinned source commit, the official `quad` selection maps to physics model `+`
+and separately supplies `copter.parm`. Supplying only a model after `--wipe` leaves
+`FRAME_CLASS` and `FRAME_TYPE` unresolved: model selection configures simulated physics,
+not the Copter motor frame. The harness therefore reproduces the official startup pair
+without a live parameter write. It rejects a missing, changed, or wrong-frame defaults
+file before launching SITL and records the exact file identity and effective frame in
+each result.
 
 ## What one smoke run proves
 
 The harness starts the stock binary with `--wipe` in a unique working directory and
-uses explicit loopback TCP/UDP ports, the `quad` model, home
+uses explicit loopback TCP/UDP ports, the official quad mapping (`+` model plus the
+verified stock Copter defaults), home
 `51.5007292,-0.1246254,15,0`, system ID 1, speedup 1, and a fixed simulation start
 time. A cross-process lock prevents two harnesses from sharing a port block. Automatic
 allocation can support parallel invocations; CI uses explicit non-overlapping blocks
@@ -40,11 +56,13 @@ Readiness is an observed MAVLink handshake rather than a sleep. The fixture:
 3. makes the native read-only `MAV_CMD_REQUEST_MESSAGE` request for
    `AUTOPILOT_VERSION`;
 4. verifies the exact firmware and MAVLink identities above; and
-5. sends `MISSION_REQUEST_LIST` and requires mission type 0 with count 0.
+5. sends `MISSION_REQUEST_LIST` and requires mission type 0 with count 0; and
+6. observes `SYS_STATUS` until ArduPilot's present and enabled
+   `MAV_SYS_STATUS_PREARM_CHECK` bit is healthy.
 
-The request-message command is used only as a read-only identity probe. The harness
-has no parameter write, mission upload, arm, mode, telemetry-presentation, or flight
-control behavior.
+The request-message command is used only as a read-only identity probe. Pre-arm health
+is observed, not requested or bypassed. The harness has no parameter write, mission
+upload, arm, mode, telemetry-presentation, or flight-control behavior.
 
 That statement describes the reusable Task 006 readiness fixture. Task 009 adds a
 separate connected-integration test after readiness releases its probe connection. The
@@ -83,9 +101,11 @@ python -m pip install pytest==9.1.1
 python -m pip install --no-deps --editable .
 python -m scripts.sitl.acquire \
   --destination .cache/skywriter-sitl/arducopter \
+  --startup-defaults-destination .cache/skywriter-sitl/copter.parm \
   --record .cache/sitl-evidence/acquisition.json
 MAVLINK20=1 \
 SKYWRITER_SITL_BINARY=.cache/skywriter-sitl/arducopter \
+SKYWRITER_SITL_STARTUP_DEFAULTS=.cache/skywriter-sitl/copter.parm \
 SKYWRITER_SITL_EVIDENCE=.cache/sitl-evidence/run-1 \
 SKYWRITER_SITL_BASE_PORT=26000 \
 python -m pytest tests/sitl/test_pinned_sitl_smoke.py -q --durations=10
@@ -97,6 +117,7 @@ and a separate port block:
 ```bash
 MAVLINK20=1 \
 SKYWRITER_SITL_BINARY=.cache/skywriter-sitl/arducopter \
+SKYWRITER_SITL_STARTUP_DEFAULTS=.cache/skywriter-sitl/copter.parm \
 SKYWRITER_SITL_EVIDENCE=.cache/sitl-evidence/connected-1 \
 SKYWRITER_SITL_BASE_PORT=26200 \
 python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
