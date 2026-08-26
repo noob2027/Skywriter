@@ -65,7 +65,9 @@ of Takeoff–Proceed–Hold–Circle–Land, and a protocol-independent raw refe
 Stock Copter cannot execute a mission without normal arming and AUTO mode. The two
 necessary stimuli exist only in `tests/sitl/test_connected_integration.py`, use normal
 arm with force value zero, target ephemeral stock SITL, and are not reusable production
-or UI APIs. Before that normal arm stimulus, the test requires a fresh same-connection
+or UI APIs. After readiness, the test selects AUTO while disarmed and then sends the
+normal arm; it does not send `MAV_CMD_MISSION_START`. Before either stimulus, the test
+requires a fresh same-connection
 `SYS_STATUS` proving ArduPilot's enabled pre-arm bit is healthy. The harness launches
 with the exact official Copter defaults selected by the pinned source's `quad` mapping;
 their hash and effective `FRAME_CLASS=1` / `FRAME_TYPE=0` are retained in evidence.

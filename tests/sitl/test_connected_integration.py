@@ -247,7 +247,7 @@ def _wait_ekf_position_ready(
     )
 
 
-def _normal_arm_then_auto(
+def _auto_then_normal_arm(
     connection: Any,
     trace: list[dict[str, object]],
     prearm_health: PrearmHealth,
@@ -259,6 +259,25 @@ def _normal_arm_then_auto(
     # its enabled pre-arm checks are healthy on the same live connection.
     assert prearm_health.ready
     assert position_health.ready
+    connection.mav.set_mode_send(
+        TARGET.system_id,
+        int(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
+        3,
+    )
+    _wait_message(
+        connection,
+        lambda message: (
+            message.get_type() == "HEARTBEAT"
+            and message.get_srcSystem() == TARGET.system_id
+            and int(message.custom_mode) == 3
+            and not (int(message.base_mode) & int(mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED))
+        ),
+        timeout_s=15.0,
+        trace=trace,
+    )
+
+    # Stock Copter begins an AUTO mission when it is normally armed after the
+    # mode is selected.  No MAV_CMD_MISSION_START stimulus is used.
     arm_command = int(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
     deadline_s = time.monotonic() + 60.0
     armed = False
@@ -296,22 +315,6 @@ def _normal_arm_then_auto(
             "stock SITL did not accept a normal, non-forced arm request; native trace="
             + json.dumps(trace[-30:], sort_keys=True)
         )
-
-    connection.mav.set_mode_send(
-        TARGET.system_id,
-        int(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
-        3,
-    )
-    _wait_message(
-        connection,
-        lambda message: (
-            message.get_type() == "HEARTBEAT"
-            and message.get_srcSystem() == TARGET.system_id
-            and int(message.custom_mode) == 3
-        ),
-        timeout_s=15.0,
-        trace=trace,
-    )
 
 
 def _record_execution_message(trace: list[dict[str, object]], message: Any) -> None:
@@ -521,7 +524,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             execution_trace,
             timeout_s=max(0.0, readiness_deadline_s - time.monotonic()),
         )
-        _normal_arm_then_auto(
+        _auto_then_normal_arm(
             sik_connection,
             execution_trace,
             prearm_health,
@@ -596,6 +599,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         "reference_verification": verification_to_document(reference),
         "execution": {
             "normal_arm_force_value": 0,
+            "stimulus_order": ["AUTO while disarmed", "normal non-forced arm"],
             "prearm_health": asdict(prearm_health),
             "ekf_position_health": asdict(position_health),
             "auto_stimulus_location": "tests/sitl/test_connected_integration.py only",
