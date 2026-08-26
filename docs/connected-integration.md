@@ -73,6 +73,12 @@ This is stock startup initialization through `--defaults`, not a MAVLink paramet
 write. Later Tasks 100–102 still own native pre-arm review, production normal-arm, and
 production AUTO-start compartments.
 
+The direct stock-binary TCP session does not assume an ambient `SYS_STATUS` stream.
+Both reusable harness readiness and the same-connection check immediately before the
+test-only arm use a bounded read-only `MAV_CMD_REQUEST_MESSAGE(SYS_STATUS)` handshake.
+They never invoke `MAV_CMD_RUN_PREARM_CHECKS`; an accepted request-message command is
+not treated as readiness unless the returned health bitmap itself passes.
+
 Each evidence directory retains the verified binary identity, exact process command,
 SITL stdout/stderr, readiness protocol trace, `connected-integration.json`, teardown
 result, and `SHA256SUMS`, including on failure. The workflow uploads the complete tree

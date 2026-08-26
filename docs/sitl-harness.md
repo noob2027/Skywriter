@@ -57,12 +57,15 @@ Readiness is an observed MAVLink handshake rather than a sleep. The fixture:
    `AUTOPILOT_VERSION`;
 4. verifies the exact firmware and MAVLink identities above; and
 5. sends `MISSION_REQUEST_LIST` and requires mission type 0 with count 0; and
-6. observes `SYS_STATUS` until ArduPilot's present and enabled
-   `MAV_SYS_STATUS_PREARM_CHECK` bit is healthy.
+6. uses the read-only `MAV_CMD_REQUEST_MESSAGE` handshake for `SYS_STATUS` until
+   ArduPilot's present and enabled `MAV_SYS_STATUS_PREARM_CHECK` bit is healthy.
 
-The request-message command is used only as a read-only identity probe. Pre-arm health
-is observed, not requested or bypassed. The harness has no parameter write, mission
-upload, arm, mode, telemetry-presentation, or flight-control behavior.
+The request-message command is used only for read-only identity and health snapshots.
+Direct-binary TCP sessions need not stream `SYS_STATUS`, so the explicit request avoids
+assuming a stream-rate side effect. The harness does not invoke
+`MAV_CMD_RUN_PREARM_CHECKS`, bypass a check, or treat command acceptance as readiness.
+It has no parameter write, mission upload, arm, mode, telemetry-presentation, or
+flight-control behavior.
 
 That statement describes the reusable Task 006 readiness fixture. Task 009 adds a
 separate connected-integration test after readiness releases its probe connection. The

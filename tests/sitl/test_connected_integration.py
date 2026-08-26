@@ -130,25 +130,56 @@ def _wait_prearm_ready(
     *,
     timeout_s: float = 30.0,
 ) -> PrearmHealth:
+    from pymavlink import mavutil
+
     deadline_s = time.monotonic() + timeout_s
     last = PrearmHealth(present=False, enabled=False, healthy=False)
     while time.monotonic() < deadline_s:
-        message = connection.recv_match(
-            blocking=True,
-            timeout=min(1.0, max(0.0, deadline_s - time.monotonic())),
+        # Direct stock-binary TCP sessions do not necessarily stream SYS_STATUS.
+        # Request one read-only snapshot; this is not MAV_CMD_RUN_PREARM_CHECKS.
+        trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "COMMAND_LONG_REQUEST_SYS_STATUS",
+                "fields": {
+                    "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+                    "requested_message_id": int(mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS),
+                },
+            }
         )
-        if message is None:
-            continue
-        _record_execution_message(trace, message)
-        if message.get_type() != "SYS_STATUS" or message.get_srcSystem() != TARGET.system_id:
-            continue
-        last = prearm_health_from_bitmaps(
-            int(message.onboard_control_sensors_present),
-            int(message.onboard_control_sensors_enabled),
-            int(message.onboard_control_sensors_health),
+        connection.mav.command_long_send(
+            TARGET.system_id,
+            TARGET.component_id,
+            int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+            0,
+            float(mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         )
-        if last.ready:
-            return last
+        response_deadline_s = min(deadline_s, time.monotonic() + 2.0)
+        while time.monotonic() < response_deadline_s:
+            message = connection.recv_match(
+                blocking=True,
+                timeout=min(0.5, max(0.0, response_deadline_s - time.monotonic())),
+            )
+            if message is None:
+                continue
+            _record_execution_message(trace, message)
+            if message.get_type() != "SYS_STATUS" or message.get_srcSystem() != TARGET.system_id:
+                continue
+            last = prearm_health_from_bitmaps(
+                int(message.onboard_control_sensors_present),
+                int(message.onboard_control_sensors_enabled),
+                int(message.onboard_control_sensors_health),
+            )
+            if last.ready:
+                return last
+            break
+        time.sleep(min(0.25, max(0.0, deadline_s - time.monotonic())))
     raise AssertionError(
         "stock SITL did not report a healthy read-only SYS_STATUS pre-arm bit; "
         f"last={last}; native trace=" + json.dumps(trace[-30:], sort_keys=True)
