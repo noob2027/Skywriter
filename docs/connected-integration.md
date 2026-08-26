@@ -93,14 +93,15 @@ absolute-position conditions. Position and pre-arm snapshots share one 30-second
 readiness deadline; neither the arm nor AUTO stimulus is sent if either condition is
 unresolved.
 
-The direct binary also does not stream `EXTENDED_SYS_STATE` by default. During execution
-the test sends a bounded read-only `MAV_CMD_REQUEST_MESSAGE` for that state before each
-telemetry refresh; the response must cross the accepted telemetry adapter. Completion
-requires a climb above 2 m, the navigation item immediately before Land to be reached,
-and a final typed on-ground plus disarmed state. The pinned 4.6.3 `NAV_LAND` verifier
-disarms on landing and deliberately returns incomplete, leaving the state machine on the
-Land item; it therefore does not emit `MISSION_ITEM_REACHED` for that final item. The
-test records this stock behavior instead of demanding an event the pin does not produce.
+The direct binary also does not stream `GLOBAL_POSITION_INT` or `EXTENDED_SYS_STATE` by
+default. During execution the test sends bounded read-only `MAV_CMD_REQUEST_MESSAGE`
+requests for those snapshots before each telemetry refresh; both responses must cross
+the accepted telemetry adapter. Completion requires a climb above 2 m, the navigation
+item immediately before Land to be reached, and a final typed on-ground plus disarmed
+state. The pinned 4.6.3 `NAV_LAND` verifier disarms on landing and deliberately returns
+incomplete, leaving the state machine on the Land item; it therefore does not emit
+`MISSION_ITEM_REACHED` for that final item. The test records this stock behavior instead
+of demanding an event the pin does not produce.
 
 Each evidence directory retains the verified binary identity, exact process command,
 SITL stdout/stderr, readiness protocol trace, `connected-integration.json`, teardown

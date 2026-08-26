@@ -126,33 +126,42 @@ def _request_home_position(connection: Any) -> None:
     )
 
 
-def _request_extended_system_state(connection: Any, trace: list[dict[str, object]]) -> None:
+def _request_execution_telemetry(connection: Any, trace: list[dict[str, object]]) -> None:
     from pymavlink import mavutil
 
-    message_id = int(mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE)
-    trace.append(
-        {
-            "elapsed_monotonic_s": time.monotonic(),
-            "message_type": "COMMAND_LONG_REQUEST_EXTENDED_SYS_STATE",
-            "fields": {
-                "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
-                "requested_message_id": message_id,
-            },
-        }
-    )
-    connection.mav.command_long_send(
-        TARGET.system_id,
-        TARGET.component_id,
-        int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
-        0,
-        message_id,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-    )
+    for trace_name, message_id in (
+        (
+            "COMMAND_LONG_REQUEST_EXTENDED_SYS_STATE",
+            int(mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE),
+        ),
+        (
+            "COMMAND_LONG_REQUEST_GLOBAL_POSITION_INT",
+            int(mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT),
+        ),
+    ):
+        trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": trace_name,
+                "fields": {
+                    "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+                    "requested_message_id": message_id,
+                },
+            }
+        )
+        connection.mav.command_long_send(
+            TARGET.system_id,
+            TARGET.component_id,
+            int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+            0,
+            message_id,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
 
 
 def _wait_prearm_ready(
@@ -604,9 +613,9 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     landed_disarmed = False
     max_relative_altitude_m = 0.0
     while time.monotonic() < execution_deadline_s:
-        # Direct stock-binary sessions do not stream this state by default. A
-        # read-only request lets the accepted telemetry adapter prove landing.
-        _request_extended_system_state(sik_connection, execution_trace)
+        # Direct stock-binary sessions do not stream these states by default.
+        # Read-only requests let the accepted telemetry adapter prove flight and landing.
+        _request_execution_telemetry(sik_connection, execution_trace)
         service.refresh_telemetry(sik, duration_s=3.0, cancellation=cancellation)
         telemetry = service.snapshot.telemetry
         assert telemetry is not None
