@@ -103,6 +103,14 @@ incomplete, leaving the state machine on the Land item; it therefore does not em
 `MISSION_ITEM_REACHED` for that final item. The test records this stock behavior instead
 of demanding an event the pin does not produce.
 
+The protocol-independent exact readback runs on the same SiK-classified connection after
+same-vehicle re-verification and before the test-only flight stimulus. This placement is
+intentional: pinned Copter constructs sequence 0 from live `AP::ahrs().get_home()` on
+every request, so normal estimator refinement during flight can change its reported
+altitude by a centimetre even though stored mission items are unchanged. Moving the
+readback preserves exact fail-closed Home verification; no tolerance or post-flight Home
+normalization is introduced.
+
 Each evidence directory retains the verified binary identity, exact process command,
 SITL stdout/stderr, readiness protocol trace, `connected-integration.json`, teardown
 result, and `SHA256SUMS`, including on failure. The workflow uploads the complete tree

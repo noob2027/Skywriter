@@ -582,6 +582,13 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     assert sik_snapshot.connected_ready(clock.now())
     states.append(sik_snapshot.verification_state.value)
 
+    # Copter builds sequence 0 from its live AHRS Home on every read. Verify the
+    # independent native readback while that authoritative preflight Home is stable;
+    # flight can legitimately refine its altitude and must not be normalized away.
+    reference_items = _reference_download(sik_connection)
+    reference = verify_native_readback(expected, reference_items)
+    assert reference.verified
+
     execution_trace: list[dict[str, object]] = []
     execution_trace_path = evidence_root / "connected-execution-trace.json"
     try:
@@ -663,9 +670,6 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             break
     assert landed_disarmed, "mixed mission did not reach Land and return to disarmed landed state"
 
-    reference_items = _reference_download(sik_connection)
-    reference = verify_native_readback(expected, reference_items)
-    assert reference.verified
     evidence = {
         "schema": "skywriter-task-009-connected-sitl-v1",
         "status": "passed",
