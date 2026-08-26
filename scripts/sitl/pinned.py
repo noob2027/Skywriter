@@ -178,7 +178,6 @@ class SitlReadiness:
     clean_mission_state: CleanMissionState
     heartbeat_base_mode: int
     disarmed: bool
-    prearm_health: PrearmHealth
 
 
 def _sha256(path: Path) -> str:
@@ -581,58 +580,6 @@ def _request_clean_mission_state(
     return state
 
 
-def _request_prearm_health(
-    connection: Any,
-    recorder: ProtocolRecorder,
-    mavutil: Any,
-    target_system: int,
-    target_component: int,
-    timeout_s: float,
-) -> PrearmHealth:
-    deadline = time.monotonic() + timeout_s
-    last = PrearmHealth(present=False, enabled=False, healthy=False)
-    while time.monotonic() < deadline:
-        fields = {
-            "target_system": target_system,
-            "target_component": target_component,
-            "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
-            "confirmation": 0,
-            "param1": float(mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS),
-            "param2": 0.0,
-            "param3": 0.0,
-            "param4": 0.0,
-            "param5": 0.0,
-            "param6": 0.0,
-            "param7": 0.0,
-        }
-        recorder.write("harness_to_vehicle", "COMMAND_LONG", fields)
-        connection.mav.command_long_send(*fields.values())
-        response_deadline = min(deadline, time.monotonic() + 2.0)
-        while time.monotonic() < response_deadline:
-            message = connection.recv_match(
-                blocking=True,
-                timeout=min(0.5, max(0.0, response_deadline - time.monotonic())),
-            )
-            if message is None:
-                continue
-            recorder.receive(message)
-            if message.get_type() != "SYS_STATUS":
-                continue
-            last = prearm_health_from_bitmaps(
-                int(message.onboard_control_sensors_present),
-                int(message.onboard_control_sensors_enabled),
-                int(message.onboard_control_sensors_health),
-            )
-            if last.ready:
-                return last
-            break
-        time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
-    raise HarnessError(
-        "stock SITL did not report healthy enabled pre-arm checks before the bounded "
-        f"deadline; last={last}"
-    )
-
-
 def _custom_version(value: object) -> str:
     if isinstance(value, bytes):
         raw = value
@@ -702,14 +649,6 @@ def _verify_readiness(
         target_component,
         response_timeout_s,
     )
-    prearm_health = _request_prearm_health(
-        connection,
-        recorder,
-        mavutil,
-        target_system,
-        target_component,
-        response_timeout_s,
-    )
     return SitlReadiness(
         endpoint=endpoint,
         target_identity=SitlTargetIdentity(
@@ -724,7 +663,6 @@ def _verify_readiness(
         clean_mission_state=clean_mission_state,
         heartbeat_base_mode=base_mode,
         disarmed=disarmed,
-        prearm_health=prearm_health,
     )
 
 

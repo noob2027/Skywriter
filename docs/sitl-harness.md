@@ -56,23 +56,23 @@ Readiness is an observed MAVLink handshake rather than a sleep. The fixture:
 3. makes the native read-only `MAV_CMD_REQUEST_MESSAGE` request for
    `AUTOPILOT_VERSION`;
 4. verifies the exact firmware and MAVLink identities above; and
-5. sends `MISSION_REQUEST_LIST` and requires mission type 0 with count 0; and
-6. uses the read-only `MAV_CMD_REQUEST_MESSAGE` handshake for `SYS_STATUS` until
-   ArduPilot's present and enabled `MAV_SYS_STATUS_PREARM_CHECK` bit is healthy.
+5. sends `MISSION_REQUEST_LIST` and requires mission type 0 with count 0.
 
-The request-message command is used only for read-only identity and health snapshots.
-Direct-binary TCP sessions need not stream `SYS_STATUS`, so the explicit request avoids
-assuming a stream-rate side effect. The harness does not invoke
-`MAV_CMD_RUN_PREARM_CHECKS`, bypass a check, or treat command acceptance as readiness.
-It has no parameter write, mission upload, arm, mode, telemetry-presentation, or
-flight-control behavior.
+The request-message command is used only as a read-only identity probe. This reusable
+Task 006 readiness fixture does not claim the vehicle is arm-ready: GPS/EKF and other
+pre-arm state may still be settling after the identity and storage checks pass. It has
+no parameter write, mission upload, arm, mode, telemetry-presentation, or flight-control
+behavior.
 
 That statement describes the reusable Task 006 readiness fixture. Task 009 adds a
 separate connected-integration test after readiness releases its probe connection. The
 test composes production mission/telemetry boundaries, uploads and verifies one mixed
 mission, reconnects, and executes it. Normal arm with force value zero and AUTO are
 confined to that test file because stock Copter requires both to execute a mission;
-they are not harness fixtures, production APIs, or UI controls. See
+they are not harness fixtures, production APIs, or UI controls. The Task 009 test uses
+an explicit read-only `MAV_CMD_REQUEST_MESSAGE(SYS_STATUS)` handshake on the live SiK
+connection and cannot send the normal arm until the returned pre-arm bitmap is present,
+enabled, and healthy. See
 [`connected-integration.md`](connected-integration.md).
 
 Each fixture yields the isolated endpoint, exact target identity, and clean mission
