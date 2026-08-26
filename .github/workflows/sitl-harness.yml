@@ -32,31 +32,49 @@ jobs:
             --require-hashes \
             --requirement compatibility/arducopter-4.6.3/requirements-probe.lock
           python -m pip install pytest==9.1.1
+          python -m pip install --no-deps --editable .
       - name: Restore verified stock binary cache
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/skywriter-sitl
-          key: arducopter-sitl-linux-x86_64-7862662092edc2861fc03da3d6fb2f0136d1670e563ca324eb52c1a324d1e14b
-      - name: Acquire and verify exact official stock binary
+          key: arducopter-sitl-linux-x86_64-78626620-defaults-5e01345b
+      - name: Acquire and verify exact official stock binary and defaults
         run: |
           mkdir -p "$RUNNER_TEMP/sitl-evidence"
           python -m scripts.sitl.acquire \
             --destination "$RUNNER_TEMP/skywriter-sitl/arducopter" \
+            --startup-defaults-destination "$RUNNER_TEMP/skywriter-sitl/copter.parm" \
             --record "$RUNNER_TEMP/sitl-evidence/acquisition.json"
       - name: Validate platform-independent harness contract
         run: python -m pytest tests/sitl/test_harness_contract.py -q --durations=10
       - name: Run pinned smoke evidence 1
         env:
           SKYWRITER_SITL_BINARY: ${{ runner.temp }}/skywriter-sitl/arducopter
+          SKYWRITER_SITL_STARTUP_DEFAULTS: ${{ runner.temp }}/skywriter-sitl/copter.parm
           SKYWRITER_SITL_EVIDENCE: ${{ runner.temp }}/sitl-evidence/run-1
           SKYWRITER_SITL_BASE_PORT: "26000"
         run: python -m pytest tests/sitl/test_pinned_sitl_smoke.py -q --durations=10
       - name: Run pinned smoke evidence 2
         env:
           SKYWRITER_SITL_BINARY: ${{ runner.temp }}/skywriter-sitl/arducopter
+          SKYWRITER_SITL_STARTUP_DEFAULTS: ${{ runner.temp }}/skywriter-sitl/copter.parm
           SKYWRITER_SITL_EVIDENCE: ${{ runner.temp }}/sitl-evidence/run-2
           SKYWRITER_SITL_BASE_PORT: "26100"
         run: python -m pytest tests/sitl/test_pinned_sitl_smoke.py -q --durations=10
+      - name: Run connected integration evidence 1
+        env:
+          SKYWRITER_SITL_BINARY: ${{ runner.temp }}/skywriter-sitl/arducopter
+          SKYWRITER_SITL_STARTUP_DEFAULTS: ${{ runner.temp }}/skywriter-sitl/copter.parm
+          SKYWRITER_SITL_EVIDENCE: ${{ runner.temp }}/sitl-evidence/connected-1
+          SKYWRITER_SITL_BASE_PORT: "26200"
+        run: python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
+      - name: Run connected integration evidence 2
+        env:
+          SKYWRITER_SITL_BINARY: ${{ runner.temp }}/skywriter-sitl/arducopter
+          SKYWRITER_SITL_STARTUP_DEFAULTS: ${{ runner.temp }}/skywriter-sitl/copter.parm
+          SKYWRITER_SITL_EVIDENCE: ${{ runner.temp }}/sitl-evidence/connected-2
+          SKYWRITER_SITL_BASE_PORT: "26300"
+        run: python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
       - name: Preserve success and failure evidence
         if: always()
         uses: actions/upload-artifact@v4

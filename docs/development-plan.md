@@ -131,6 +131,12 @@ Launch Tasks 006–008 from the same accepted offline/compatibility commit.
 
 Task 009 integrates target identity, USB upload/readback, SiK reconnection/readback, telemetry, state invalidation, and mixed-mission SITL execution.
 
+The Task 009 implementation retains the existing compartments behind injected
+contracts. Its stock-SITL acceptance harness may supply the normal arm/AUTO stimulus
+required to execute the test mission, but those test-only actions must not create a
+production API or UI control. Production pre-arm, Arm, and AUTO remain serial Tasks
+100–102.
+
 Connected acceptance:
 
 - upload state machine passes loss/duplicate/wrong-sequence/negative-ACK tests;

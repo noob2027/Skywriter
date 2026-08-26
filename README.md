@@ -72,6 +72,11 @@ seam, screenshots, and unresolved hardware assumptions are documented in
 [`docs/telemetry.md`](docs/telemetry.md). This boundary emits no MAVLink traffic and does
 not make offline SKYWriter depend on a vehicle link or SITL.
 
+The connected mission composition, fail-closed USB/SiK lifecycle, pinned mixed-mission
+evidence, and remaining hardware limits are documented in
+[`docs/connected-integration.md`](docs/connected-integration.md). Task 009 adds no
+production flight-command or parameter-write surface.
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.
@@ -128,6 +133,7 @@ The documents in this starter package are the implementation source of truth. Be
 
 - [`docs/product-specification.md`](docs/product-specification.md): user behavior, requirements, exclusions, and acceptance criteria
 - [`docs/architecture.md`](docs/architecture.md): domain model, state machines, interfaces, protocol boundaries, and test seams
+- [`docs/connected-integration.md`](docs/connected-integration.md): USB/SiK composition, invalidation, and stock-SITL evidence
 - [`docs/development-plan.md`](docs/development-plan.md): phases, branch/PR workflow, gates, and validation ladder
 - [`AGENTS.md`](AGENTS.md): binding repository rules for Codex and human contributors
 - [`codex-tasks/README.md`](codex-tasks/README.md): launch order and bounded handoffs

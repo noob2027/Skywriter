@@ -1,5 +1,17 @@
 """Presentation-neutral application state and use-case contracts."""
 
+from skywriter.application.connected import (
+    ConnectedFailure,
+    ConnectedFailureCode,
+    ConnectedMissionService,
+    ConnectedMissionSnapshot,
+    ConnectedPortFailure,
+    ConnectedTarget,
+    ConnectedVehiclePort,
+    ConnectedVerificationState,
+    MissionReadback,
+    MissionTransferEvidence,
+)
 from skywriter.application.mission_service import (
     MissionRepository,
     OfflineMissionError,
@@ -42,6 +54,14 @@ __all__ = [
     "ApplicationSnapshot",
     "ApplicationStarted",
     "BatteryTelemetry",
+    "ConnectedFailure",
+    "ConnectedFailureCode",
+    "ConnectedMissionService",
+    "ConnectedMissionSnapshot",
+    "ConnectedPortFailure",
+    "ConnectedTarget",
+    "ConnectedVehiclePort",
+    "ConnectedVerificationState",
     "EkfTelemetry",
     "ExtendedStateTelemetry",
     "GpsTelemetry",
@@ -49,6 +69,8 @@ __all__ = [
     "HomeTelemetry",
     "MissionRepository",
     "MissionProgressTelemetry",
+    "MissionReadback",
+    "MissionTransferEvidence",
     "NativeStatusText",
     "OfflineMissionError",
     "OfflineMissionService",

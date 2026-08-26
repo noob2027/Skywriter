@@ -9,9 +9,21 @@ import os
 import shutil
 import sys
 import urllib.request
+from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
+from typing import TypeVar
 
-from scripts.sitl.pinned import PINNED_ARTIFACT, verify_artifact
+from scripts.sitl.pinned import (
+    PINNED_ARTIFACT,
+    PINNED_STARTUP_DEFAULTS,
+    VerifiedArtifact,
+    VerifiedStartupDefaults,
+    verify_artifact,
+    verify_startup_defaults,
+)
+
+VerifiedInput = TypeVar("VerifiedInput", VerifiedArtifact, VerifiedStartupDefaults)
 
 
 def _write_record(path: Path | None, document: dict[str, object]) -> None:
@@ -24,46 +36,80 @@ def _write_record(path: Path | None, document: dict[str, object]) -> None:
     hash_path.write_text(f"{digest}  {path.name}\n", encoding="utf-8")
 
 
-def acquire(destination: Path, record_path: Path | None = None) -> None:
-    """Reuse a valid cached artifact or replace it from the official endpoint."""
-
+def _acquire_input(
+    destination: Path,
+    url: str,
+    verify: Callable[[Path], VerifiedInput],
+    *,
+    executable: bool,
+) -> tuple[str, VerifiedInput]:
     destination = destination.resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if destination.exists():
-            try:
-                verified = verify_artifact(destination)
-            except RuntimeError:
-                destination.unlink()
-            else:
-                if os.name == "posix":
-                    destination.chmod(0o700)
-                _write_record(
-                    record_path,
-                    {"status": "verified-cache", "artifact": verified.__dict__},
-                )
-                return
-
-        temporary = destination.with_name(f".{destination.name}.{os.getpid()}.download")
+    if destination.exists():
         try:
-            with urllib.request.urlopen(PINNED_ARTIFACT.url, timeout=60) as response:
-                with temporary.open("wb") as stream:
-                    shutil.copyfileobj(response, stream, length=1024 * 1024)
-            verify_artifact(temporary)
-            os.replace(temporary, destination)
-            if os.name == "posix":
+            verified = verify(destination)
+        except RuntimeError:
+            destination.unlink()
+        else:
+            if executable and os.name == "posix":
                 destination.chmod(0o700)
-            verified = verify_artifact(destination)
-        finally:
-            temporary.unlink(missing_ok=True)
-        _write_record(record_path, {"status": "downloaded", "artifact": verified.__dict__})
+            return "verified-cache", verified
+
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.download")
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response:
+            with temporary.open("wb") as stream:
+                shutil.copyfileobj(response, stream, length=1024 * 1024)
+        verify(temporary)
+        os.replace(temporary, destination)
+        if executable and os.name == "posix":
+            destination.chmod(0o700)
+        return "downloaded", verify(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def acquire(
+    destination: Path,
+    startup_defaults_destination: Path,
+    record_path: Path | None = None,
+) -> None:
+    """Acquire and verify the stock binary plus its official Copter defaults."""
+
+    try:
+        artifact_status, artifact = _acquire_input(
+            destination,
+            PINNED_ARTIFACT.url,
+            verify_artifact,
+            executable=True,
+        )
+        defaults_status, startup_defaults = _acquire_input(
+            startup_defaults_destination,
+            PINNED_STARTUP_DEFAULTS.url,
+            verify_startup_defaults,
+            executable=False,
+        )
+        status = (
+            "verified-cache"
+            if artifact_status == defaults_status == "verified-cache"
+            else "downloaded"
+        )
+        _write_record(
+            record_path,
+            {
+                "status": status,
+                "artifact": asdict(artifact),
+                "startup_defaults": asdict(startup_defaults),
+            },
+        )
     except BaseException as error:
         _write_record(
             record_path,
             {
                 "status": "failed",
                 "error": f"{type(error).__name__}: {error}",
-                "expected": PINNED_ARTIFACT.__dict__,
+                "expected_artifact": asdict(PINNED_ARTIFACT),
+                "expected_startup_defaults": asdict(PINNED_STARTUP_DEFAULTS),
             },
         )
         raise
@@ -72,10 +118,15 @@ def acquire(destination: Path, record_path: Path | None = None) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--destination", type=Path, required=True)
+    parser.add_argument("--startup-defaults-destination", type=Path, required=True)
     parser.add_argument("--record", type=Path)
     args = parser.parse_args()
-    acquire(args.destination, args.record)
+    acquire(args.destination, args.startup_defaults_destination, args.record)
     print(f"verified {args.destination.resolve()} as {PINNED_ARTIFACT.sha256}")
+    print(
+        "verified "
+        f"{args.startup_defaults_destination.resolve()} as {PINNED_STARTUP_DEFAULTS.sha256}"
+    )
     return 0
 
 

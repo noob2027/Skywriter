@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 import pytest
 
@@ -9,6 +10,7 @@ from skywriter.infrastructure.mavlink.connection import (
     IncomingMessage,
     MavlinkAddress,
     MissionLink,
+    PymavlinkMissionLink,
     TargetSelectionError,
     TransportDescriptor,
     TransportKind,
@@ -126,3 +128,57 @@ def test_link_contract_exposes_only_closed_mission_service_sends() -> None:
         "send_mission_request_int",
         "send_mission_ack",
     }
+
+
+class RawMessage:
+    def __init__(self, name: str, system_id: int, component_id: int) -> None:
+        self._name = name
+        self._system_id = system_id
+        self._component_id = component_id
+
+    def get_type(self) -> str:
+        return self._name
+
+    def get_srcSystem(self) -> int:
+        return self._system_id
+
+    def get_srcComponent(self) -> int:
+        return self._component_id
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "mavpackettype": self._name,
+            "type": 2,
+            "autopilot": 3,
+            "base_mode": 0,
+        }
+
+
+class RawConnection:
+    def __init__(self, messages: list[RawMessage]) -> None:
+        self.messages = messages
+        self.close_count = 0
+        self.mav: Any = object()
+
+    def recv_match(self, *, blocking: bool, timeout: float) -> RawMessage | None:
+        del blocking, timeout
+        return self.messages.pop(0) if self.messages else None
+
+    def close(self) -> None:
+        self.close_count += 1
+
+
+def test_pymavlink_boundary_discards_bad_data_before_valid_target_and_closes_once() -> None:
+    connection = RawConnection([RawMessage("BAD_DATA", 0, 0), RawMessage("HEARTBEAT", 1, 1)])
+    link = PymavlinkMissionLink(
+        connection,
+        TransportDescriptor("tcp:127.0.0.1:26000", TransportKind.USB),
+    )
+
+    received = link.receive(1.0)
+    assert received is not None
+    assert received.name == "HEARTBEAT"
+    assert received.source == MavlinkAddress(1, 1)
+    link.close()
+    link.close()
+    assert connection.close_count == 1

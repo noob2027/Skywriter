@@ -13,6 +13,7 @@ from skywriter.application import (
 )
 from skywriter.config import DEFAULT_CONFIG, ApplicationConfig
 from skywriter.result import is_ok
+from skywriter.ui.connected import ConnectedMissionWidget
 from skywriter.ui.flight import FlightTelemetryWidget
 from skywriter.ui.offline_workspace import OfflineMissionWorkspace
 from skywriter.ui.preflight import PreflightTelemetryWidget
@@ -23,7 +24,12 @@ LOGGER = logging.getLogger("skywriter.ui")
 class MainWindow(QMainWindow):
     """Top-level SKYWriter window with the production offline Builder."""
 
-    _VIEW_ORDER = (ViewName.BUILDER, ViewName.PREFLIGHT, ViewName.FLIGHT)
+    _VIEW_ORDER = (
+        ViewName.BUILDER,
+        ViewName.CONNECTED,
+        ViewName.PREFLIGHT,
+        ViewName.FLIGHT,
+    )
 
     def __init__(self, config: ApplicationConfig = DEFAULT_CONFIG) -> None:
         super().__init__()
@@ -41,6 +47,8 @@ class MainWindow(QMainWindow):
         self._tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._mission_workspace = OfflineMissionWorkspace()
         self._tabs.addTab(self._mission_workspace, "Builder")
+        self._connected_mission = ConnectedMissionWidget()
+        self._tabs.addTab(self._connected_mission, "Connected")
         self._preflight_telemetry = PreflightTelemetryWidget()
         self._flight_telemetry = FlightTelemetryWidget()
         self._tabs.addTab(self._preflight_telemetry, "Preflight")
@@ -64,6 +72,10 @@ class MainWindow(QMainWindow):
     @property
     def preflight_telemetry(self) -> PreflightTelemetryWidget:
         return self._preflight_telemetry
+
+    @property
+    def connected_mission(self) -> ConnectedMissionWidget:
+        return self._connected_mission
 
     @property
     def flight_telemetry(self) -> FlightTelemetryWidget:

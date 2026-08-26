@@ -282,6 +282,8 @@ class PymavlinkMissionLink:
         return self._connected
 
     def close(self) -> None:
+        if not self._connected:
+            return
         self._connected = False
         close = getattr(self._connection, "close", None)
         if callable(close):
@@ -289,20 +291,33 @@ class PymavlinkMissionLink:
 
     def receive(self, timeout_s: float) -> IncomingMessage | None:
         self._require_connected()
-        try:
-            raw = self._connection.recv_match(blocking=True, timeout=max(0.0, timeout_s))
-        except (EOFError, OSError) as error:
-            self._connected = False
-            raise ConnectionError("MAVLink connection closed while receiving") from error
-        if raw is None:
-            return None
-        fields = raw.to_dict()
-        fields.pop("mavpackettype", None)
-        return IncomingMessage(
-            name=str(raw.get_type()),
-            source=MavlinkAddress(raw.get_srcSystem(), raw.get_srcComponent()),
-            fields=fields,
-        )
+        deadline_s = time.monotonic() + max(0.0, timeout_s)
+        first_attempt = True
+        while first_attempt or time.monotonic() < deadline_s:
+            first_attempt = False
+            try:
+                raw = self._connection.recv_match(
+                    blocking=True,
+                    timeout=max(0.0, deadline_s - time.monotonic()),
+                )
+            except (EOFError, OSError) as error:
+                self._connected = False
+                raise ConnectionError("MAVLink connection closed while receiving") from error
+            if raw is None:
+                return None
+            # pymavlink represents startup/framing noise as BAD_DATA with the
+            # reserved 0:0 source.  It is not a target candidate or protocol
+            # response, so discard it within the caller's original deadline.
+            if str(raw.get_type()) == "BAD_DATA":
+                continue
+            fields = raw.to_dict()
+            fields.pop("mavpackettype", None)
+            return IncomingMessage(
+                name=str(raw.get_type()),
+                source=MavlinkAddress(raw.get_srcSystem(), raw.get_srcComponent()),
+                fields=fields,
+            )
+        return None
 
     def send_mission_count(self, target: MavlinkAddress, *, count: int, mission_type: int) -> None:
         self._emit(

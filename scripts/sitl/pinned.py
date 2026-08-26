@@ -27,13 +27,24 @@ ARTIFACT_SHA256 = "7862662092edc2861fc03da3d6fb2f0136d1670e563ca324eb52c1a324d1e
 ARTIFACT_SIZE = 7_023_152
 RELEASE_TAG_COMMIT = "92b0cd788ec29406f26c6f9c31d5ceedbd1cc538"
 PUBLISHED_SITL_COMMIT = "3fc7011a7d3dc047cbb17d8bd98ee94577d144c6"
+STARTUP_DEFAULTS_URL = (
+    "https://raw.githubusercontent.com/ArduPilot/ardupilot/"
+    f"{PUBLISHED_SITL_COMMIT}/Tools/autotest/default_params/copter.parm"
+)
+STARTUP_DEFAULTS_SHA256 = "5e01345b45d1c6190b28bece5638bbdd4cf1cce35e05bbbf480ab24d2b51aa0e"
+STARTUP_DEFAULTS_SIZE = 1_957
+STARTUP_DEFAULTS_GIT_BLOB = "17e5c25b26d972a2155b69d2262db08d5f749583"
+EXPECTED_FRAME_CLASS = 1
+EXPECTED_FRAME_TYPE = 0
 EXPECTED_FLIGHT_SW_VERSION = 0x04060380
 EXPECTED_CUSTOM_VERSION = "3fc7011a"
 MAVLINK_DIALECT = "ardupilotmega"
 MAVLINK_VERSION = 2
 PYMAVLINK_VERSION = "2.4.41"
 DEFAULT_HOME = "51.5007292,-0.1246254,15,0"
-DEFAULT_MODEL = "quad"
+# ArduPilot's pinned sim_vehicle mapping translates its user-facing ``quad``
+# frame to the ``+`` physics model and the separately verified copter defaults.
+DEFAULT_MODEL = "+"
 DEFAULT_START_TIME = 1_700_000_000
 DEFAULT_STARTUP_TIMEOUT_S = 45.0
 DEFAULT_RESPONSE_TIMEOUT_S = 15.0
@@ -41,6 +52,9 @@ DEFAULT_SHUTDOWN_TIMEOUT_S = 10.0
 PORT_BLOCK_WIDTH = 20
 AUTO_PORT_START = 24_000
 AUTO_PORT_STOP = 48_000
+PREARM_CHECK_BIT = 1 << 28
+EKF_POS_HORIZ_ABS_BIT = 1 << 4
+EKF_CONST_POS_MODE_BIT = 1 << 7
 
 
 class HarnessError(RuntimeError):
@@ -68,12 +82,47 @@ PINNED_ARTIFACT = ArtifactIdentity(
 
 
 @dataclass(frozen=True)
+class StartupDefaultsIdentity:
+    """Immutable identity of ArduPilot's stock Copter SITL defaults input."""
+
+    url: str
+    sha256: str
+    size_bytes: int
+    published_sitl_commit: str
+    git_blob_sha: str
+    frame_class: int
+    frame_type: int
+
+
+PINNED_STARTUP_DEFAULTS = StartupDefaultsIdentity(
+    url=STARTUP_DEFAULTS_URL,
+    sha256=STARTUP_DEFAULTS_SHA256,
+    size_bytes=STARTUP_DEFAULTS_SIZE,
+    published_sitl_commit=PUBLISHED_SITL_COMMIT,
+    git_blob_sha=STARTUP_DEFAULTS_GIT_BLOB,
+    frame_class=EXPECTED_FRAME_CLASS,
+    frame_type=EXPECTED_FRAME_TYPE,
+)
+
+
+@dataclass(frozen=True)
 class VerifiedArtifact:
     """A locally verified copy of the pinned executable."""
 
     path: str
     sha256: str
     size_bytes: int
+
+
+@dataclass(frozen=True)
+class VerifiedStartupDefaults:
+    """A verified stock startup-defaults file and its effective frame values."""
+
+    path: str
+    sha256: str
+    size_bytes: int
+    frame_class: int
+    frame_type: int
 
 
 @dataclass(frozen=True)
@@ -107,6 +156,31 @@ class CleanMissionState:
 
     count: int
     mission_type: int
+
+
+@dataclass(frozen=True)
+class PrearmHealth:
+    """Read-only interpretation of ArduPilot's SYS_STATUS pre-arm bit."""
+
+    present: bool
+    enabled: bool
+    healthy: bool
+
+    @property
+    def ready(self) -> bool:
+        return self.present and self.enabled and self.healthy
+
+
+@dataclass(frozen=True)
+class EkfPositionHealth:
+    """Read-only estimator flags matching armed Copter's position gate."""
+
+    horizontal_absolute: bool
+    constant_position_mode: bool
+
+    @property
+    def ready(self) -> bool:
+        return self.horizontal_absolute and not self.constant_position_mode
 
 
 @dataclass(frozen=True)
@@ -145,6 +219,83 @@ def verify_artifact(path: Path, identity: ArtifactIdentity = PINNED_ARTIFACT) ->
             f"pinned SITL artifact SHA-256 mismatch: expected {identity.sha256}, got {sha256}"
         )
     return VerifiedArtifact(path=str(resolved), sha256=sha256, size_bytes=size)
+
+
+def _required_frame_values(path: Path) -> tuple[int, int]:
+    values: dict[str, int] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", maxsplit=1)[0].strip()
+        if not line:
+            continue
+        fields = line.split()
+        if fields[0] not in {"FRAME_CLASS", "FRAME_TYPE"}:
+            continue
+        if len(fields) != 2 or fields[0] in values:
+            raise HarnessError(f"invalid or duplicate startup default: {raw_line!r}")
+        try:
+            values[fields[0]] = int(fields[1])
+        except ValueError as error:
+            raise HarnessError(f"non-integer startup default: {raw_line!r}") from error
+    missing = {"FRAME_CLASS", "FRAME_TYPE"} - values.keys()
+    if missing:
+        raise HarnessError(f"startup defaults omit required frame values: {sorted(missing)}")
+    return values["FRAME_CLASS"], values["FRAME_TYPE"]
+
+
+def verify_startup_defaults(
+    path: Path,
+    identity: StartupDefaultsIdentity = PINNED_STARTUP_DEFAULTS,
+) -> VerifiedStartupDefaults:
+    """Verify the exact official defaults before passing them to stock SITL."""
+
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise HarnessError(f"pinned SITL startup defaults are missing: {resolved}")
+    size = resolved.stat().st_size
+    if size != identity.size_bytes:
+        raise HarnessError(
+            "pinned SITL startup defaults size mismatch: "
+            f"expected {identity.size_bytes}, got {size}"
+        )
+    sha256 = _sha256(resolved)
+    if sha256 != identity.sha256:
+        raise HarnessError(
+            "pinned SITL startup defaults SHA-256 mismatch: "
+            f"expected {identity.sha256}, got {sha256}"
+        )
+    frame_class, frame_type = _required_frame_values(resolved)
+    if (frame_class, frame_type) != (identity.frame_class, identity.frame_type):
+        raise HarnessError(
+            "pinned SITL startup frame mismatch: expected "
+            f"FRAME_CLASS={identity.frame_class}, FRAME_TYPE={identity.frame_type}; got "
+            f"FRAME_CLASS={frame_class}, FRAME_TYPE={frame_type}"
+        )
+    return VerifiedStartupDefaults(
+        path=str(resolved),
+        sha256=sha256,
+        size_bytes=size,
+        frame_class=frame_class,
+        frame_type=frame_type,
+    )
+
+
+def prearm_health_from_bitmaps(present: int, enabled: int, health: int) -> PrearmHealth:
+    """Interpret the standard pre-arm bit without changing vehicle state."""
+
+    return PrearmHealth(
+        present=bool(present & PREARM_CHECK_BIT),
+        enabled=bool(enabled & PREARM_CHECK_BIT),
+        healthy=bool(health & PREARM_CHECK_BIT),
+    )
+
+
+def ekf_position_health_from_flags(flags: int) -> EkfPositionHealth:
+    """Interpret the pinned Copter position flags without changing vehicle state."""
+
+    return EkfPositionHealth(
+        horizontal_absolute=bool(flags & EKF_POS_HORIZ_ABS_BIT),
+        constant_position_mode=bool(flags & EKF_CONST_POS_MODE_BIT),
+    )
 
 
 def _ports_for_base(base_port: int) -> tuple[tuple[int, ...], tuple[int, ...]]:
@@ -261,6 +412,7 @@ class PortLease:
 
 def build_command(
     artifact: VerifiedArtifact,
+    startup_defaults: VerifiedStartupDefaults,
     base_port: int,
     *,
     home: str = DEFAULT_HOME,
@@ -282,6 +434,8 @@ def build_command(
         str(base_port + 13),
         "--model",
         model,
+        "--defaults",
+        startup_defaults.path,
         "--home",
         home,
         "--speedup",
@@ -588,6 +742,7 @@ def _write_hashes(output_dir: Path) -> None:
 @contextmanager
 def pinned_sitl_session(
     artifact_path: Path,
+    startup_defaults_path: Path,
     output_dir: Path,
     *,
     preferred_base_port: int | None = None,
@@ -609,6 +764,7 @@ def pinned_sitl_session(
     stdout_stream: TextIO | None = None
     stderr_stream: TextIO | None = None
     verified: VerifiedArtifact | None = None
+    verified_startup_defaults: VerifiedStartupDefaults | None = None
     command: tuple[str, ...] | None = None
     readiness: SitlReadiness | None = None
     exit_code: int | None = None
@@ -616,9 +772,10 @@ def pinned_sitl_session(
 
     try:
         verified = verify_artifact(artifact_path)
+        verified_startup_defaults = verify_startup_defaults(startup_defaults_path)
         lease = PortLease.acquire(preferred_base_port)
         endpoint = SitlEndpoint("127.0.0.1", lease.base_port)
-        command = build_command(verified, lease.base_port)
+        command = build_command(verified, verified_startup_defaults, lease.base_port)
         work_dir = output_dir / "work"
         work_dir.mkdir(exist_ok=False)
         stdout_stream = (output_dir / "sitl-stdout.log").open("w", encoding="utf-8", newline="\n")
@@ -636,6 +793,10 @@ def pinned_sitl_session(
         mavutil = cast(ModuleType, _mavutil())
         connection = _connect(endpoint.connection_string, startup_timeout_s, mavutil)
         readiness = _verify_readiness(connection, recorder, endpoint, response_timeout_s)
+        # Readiness owns no live endpoint after its bounded probe.  Releasing the
+        # probe client lets connected-integration tests exercise a clean restart.
+        connection.close()
+        connection = None
         yield readiness
     except BaseException as error:
         error_text = f"{type(error).__name__}: {error}"
@@ -669,6 +830,10 @@ def pinned_sitl_session(
             "duration_s": round(time.monotonic() - started, 3),
             "artifact": asdict(verified) if verified is not None else None,
             "pin": asdict(PINNED_ARTIFACT),
+            "startup_defaults": (
+                asdict(verified_startup_defaults) if verified_startup_defaults is not None else None
+            ),
+            "startup_defaults_pin": asdict(PINNED_STARTUP_DEFAULTS),
             "command": list(command) if command is not None else None,
             "process_pid": process.pid if process is not None else None,
             "process_exit_code": exit_code,
@@ -678,8 +843,9 @@ def pinned_sitl_session(
                 "stock_binary_unmodified": True,
                 "read_only_protocol_probe": True,
                 "parameter_writes": False,
-                "arm_or_mode_changes": False,
-                "mission_uploads": False,
+                "stock_startup_defaults_only": True,
+                "harness_arm_or_mode_changes": False,
+                "harness_mission_uploads": False,
             },
         }
         _write_json(result_path, result)

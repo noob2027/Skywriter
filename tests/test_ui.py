@@ -15,12 +15,13 @@ def test_main_window_labels_all_foundation_views() -> None:
     assert tabs is not None
     assert [tabs.tabText(index) for index in range(tabs.count())] == [
         "Builder",
+        "Connected",
         "Preflight",
         "Flight",
     ]
 
     tabs.setCurrentIndex(1)
-    assert window.snapshot.active_view is ViewName.PREFLIGHT
+    assert window.snapshot.active_view is ViewName.CONNECTED
     window.close()
 
 

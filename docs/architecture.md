@@ -173,6 +173,19 @@ Command: IDLE | PENDING(kind, token, deadline) | ACCEPTED | REJECTED | TIMED_OUT
 
 Verification is tied to a digest of the canonical compiled mission, target identity, mission type, and readback. Editing the mission, changing target, detecting a newer onboard mission, or losing transaction integrity clears it. Reconnection alone never restores it.
 
+Task 009 implements this as a presentation-neutral `ConnectedMissionService` behind an
+injected high-level port. The concrete MAVLink port composes, rather than duplicates, the
+accepted target discovery, mission protocol, compatibility verification, and telemetry
+adapters. Its public send surface remains mission-only. The Qt panel emits immutable
+intents and leaves every blocking operation to a caller-owned worker.
+
+The implemented verification states are `UNVERIFIED`, `USB_VERIFIED`,
+`REVERIFY_REQUIRED`, `SIK_VERIFIED`, and `MISMATCH`. USB verification requires explicit
+onboard-replacement approval plus fresh same-target heartbeat and Home. Disconnect or an
+edit clears readiness; a fresh same-vehicle SiK full readback is required to restore it.
+No state transition in this compartment arms, changes mode, starts flight, writes a
+parameter, or sends a generic command.
+
 Readiness is derived, never toggled directly by a widget. Example predicates:
 
 ```text
