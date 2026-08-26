@@ -74,10 +74,19 @@ write. Later Tasks 100–102 still own native pre-arm review, production normal-
 production AUTO-start compartments.
 
 The direct stock-binary TCP session does not assume an ambient `SYS_STATUS` stream.
-Both reusable harness readiness and the same-connection check immediately before the
-test-only arm use a bounded read-only `MAV_CMD_REQUEST_MESSAGE(SYS_STATUS)` handshake.
-They never invoke `MAV_CMD_RUN_PREARM_CHECKS`; an accepted request-message command is
-not treated as readiness unless the returned health bitmap itself passes.
+The same-connection check immediately before the test-only arm uses a bounded read-only
+`MAV_CMD_REQUEST_MESSAGE(SYS_STATUS)` handshake. It never invokes
+`MAV_CMD_RUN_PREARM_CHECKS`; an accepted request-message command is not treated as
+readiness unless the returned health bitmap itself passes. Reusable Task 006 readiness
+does not claim arm readiness while GPS/EKF state is still settling.
+
+AUTO also requires the estimator position that pinned Copter checks after arming. The
+execution boundary therefore uses the same read-only request mechanism for
+`EKF_STATUS_REPORT` and requires `EKF_POS_HORIZ_ABS` without
+`EKF_CONST_POS_MODE` before the normal arm. Those are the pinned source's armed
+absolute-position conditions. Position and pre-arm snapshots share one 30-second
+readiness deadline; neither the arm nor AUTO stimulus is sent if either condition is
+unresolved.
 
 Each evidence directory retains the verified binary identity, exact process command,
 SITL stdout/stderr, readiness protocol trace, `connected-integration.json`, teardown

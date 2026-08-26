@@ -20,9 +20,11 @@ import pytest
 
 from scripts.sitl.pinned import (
     MAVLINK_DIALECT,
+    EkfPositionHealth,
     PrearmHealth,
     SitlEndpoint,
     SitlTargetIdentity,
+    ekf_position_health_from_flags,
     prearm_health_from_bitmaps,
 )
 from skywriter.application.connected import (
@@ -186,16 +188,77 @@ def _wait_prearm_ready(
     )
 
 
+def _wait_ekf_position_ready(
+    connection: Any,
+    trace: list[dict[str, object]],
+    *,
+    timeout_s: float,
+) -> EkfPositionHealth:
+    from pymavlink import mavutil
+
+    deadline_s = time.monotonic() + timeout_s
+    last = EkfPositionHealth(horizontal_absolute=False, constant_position_mode=False)
+    while time.monotonic() < deadline_s:
+        trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "COMMAND_LONG_REQUEST_EKF_STATUS_REPORT",
+                "fields": {
+                    "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+                    "requested_message_id": int(mavutil.mavlink.MAVLINK_MSG_ID_EKF_STATUS_REPORT),
+                },
+            }
+        )
+        connection.mav.command_long_send(
+            TARGET.system_id,
+            TARGET.component_id,
+            int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+            0,
+            float(mavutil.mavlink.MAVLINK_MSG_ID_EKF_STATUS_REPORT),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+        response_deadline_s = min(deadline_s, time.monotonic() + 2.0)
+        while time.monotonic() < response_deadline_s:
+            message = connection.recv_match(
+                blocking=True,
+                timeout=min(0.5, max(0.0, response_deadline_s - time.monotonic())),
+            )
+            if message is None:
+                continue
+            _record_execution_message(trace, message)
+            if (
+                message.get_type() != "EKF_STATUS_REPORT"
+                or message.get_srcSystem() != TARGET.system_id
+            ):
+                continue
+            last = ekf_position_health_from_flags(int(message.flags))
+            if last.ready:
+                return last
+            break
+        time.sleep(min(0.25, max(0.0, deadline_s - time.monotonic())))
+    raise AssertionError(
+        "stock SITL did not report an absolute non-constant EKF position before the "
+        f"bounded deadline; last={last}; native trace=" + json.dumps(trace[-30:], sort_keys=True)
+    )
+
+
 def _normal_arm_then_auto(
     connection: Any,
     trace: list[dict[str, object]],
     prearm_health: PrearmHealth,
+    position_health: EkfPositionHealth,
 ) -> None:
     from pymavlink import mavutil
 
     # Do not emit even a normal arm request until stock ArduPilot reports that
     # its enabled pre-arm checks are healthy on the same live connection.
     assert prearm_health.ready
+    assert position_health.ready
     arm_command = int(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
     deadline_s = time.monotonic() + 60.0
     armed = False
@@ -254,6 +317,7 @@ def _normal_arm_then_auto(
 def _record_execution_message(trace: list[dict[str, object]], message: Any) -> None:
     if message.get_type() not in {
         "COMMAND_ACK",
+        "EKF_STATUS_REPORT",
         "HEARTBEAT",
         "MISSION_CURRENT",
         "MISSION_ITEM_REACHED",
@@ -446,8 +510,23 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     execution_trace: list[dict[str, object]] = []
     execution_trace_path = evidence_root / "connected-execution-trace.json"
     try:
-        prearm_health = _wait_prearm_ready(sik_connection, execution_trace)
-        _normal_arm_then_auto(sik_connection, execution_trace, prearm_health)
+        readiness_deadline_s = time.monotonic() + 30.0
+        position_health = _wait_ekf_position_ready(
+            sik_connection,
+            execution_trace,
+            timeout_s=max(0.0, readiness_deadline_s - time.monotonic()),
+        )
+        prearm_health = _wait_prearm_ready(
+            sik_connection,
+            execution_trace,
+            timeout_s=max(0.0, readiness_deadline_s - time.monotonic()),
+        )
+        _normal_arm_then_auto(
+            sik_connection,
+            execution_trace,
+            prearm_health,
+            position_health,
+        )
     finally:
         # Preserve native pre-arm/arm evidence even when the test fails closed.
         _write_execution_trace(execution_trace_path, execution_trace)
@@ -518,6 +597,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         "execution": {
             "normal_arm_force_value": 0,
             "prearm_health": asdict(prearm_health),
+            "ekf_position_health": asdict(position_health),
             "auto_stimulus_location": "tests/sitl/test_connected_integration.py only",
             "final_sequence": final_sequence,
             "observed_sequences": sorted(reached),

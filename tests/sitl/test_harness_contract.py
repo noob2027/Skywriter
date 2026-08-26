@@ -17,6 +17,7 @@ from scripts.sitl.pinned import (
     VerifiedArtifact,
     VerifiedStartupDefaults,
     build_command,
+    ekf_position_health_from_flags,
     prearm_health_from_bitmaps,
     verify_artifact,
     verify_startup_defaults,
@@ -136,6 +137,21 @@ def test_prearm_health_requires_present_enabled_and_healthy_bits(
     present: int, enabled: int, health: int, ready: bool
 ) -> None:
     assert prearm_health_from_bitmaps(present, enabled, health).ready is ready
+
+
+@pytest.mark.parametrize(
+    ("flags", "ready"),
+    [
+        (0, False),
+        (pinned.EKF_POS_HORIZ_ABS_BIT, True),
+        (pinned.EKF_CONST_POS_MODE_BIT, False),
+        (pinned.EKF_POS_HORIZ_ABS_BIT | pinned.EKF_CONST_POS_MODE_BIT, False),
+    ],
+)
+def test_ekf_position_health_requires_absolute_nonconstant_position(
+    flags: int, ready: bool
+) -> None:
+    assert ekf_position_health_from_flags(flags).ready is ready
 
 
 def test_port_lease_prevents_shared_block_and_releases_it() -> None:

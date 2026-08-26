@@ -53,6 +53,8 @@ PORT_BLOCK_WIDTH = 20
 AUTO_PORT_START = 24_000
 AUTO_PORT_STOP = 48_000
 PREARM_CHECK_BIT = 1 << 28
+EKF_POS_HORIZ_ABS_BIT = 1 << 4
+EKF_CONST_POS_MODE_BIT = 1 << 7
 
 
 class HarnessError(RuntimeError):
@@ -170,6 +172,18 @@ class PrearmHealth:
 
 
 @dataclass(frozen=True)
+class EkfPositionHealth:
+    """Read-only estimator flags matching armed Copter's position gate."""
+
+    horizontal_absolute: bool
+    constant_position_mode: bool
+
+    @property
+    def ready(self) -> bool:
+        return self.horizontal_absolute and not self.constant_position_mode
+
+
+@dataclass(frozen=True)
 class SitlReadiness:
     """All state proven before a real SITL fixture is yielded."""
 
@@ -272,6 +286,15 @@ def prearm_health_from_bitmaps(present: int, enabled: int, health: int) -> Prear
         present=bool(present & PREARM_CHECK_BIT),
         enabled=bool(enabled & PREARM_CHECK_BIT),
         healthy=bool(health & PREARM_CHECK_BIT),
+    )
+
+
+def ekf_position_health_from_flags(flags: int) -> EkfPositionHealth:
+    """Interpret the pinned Copter position flags without changing vehicle state."""
+
+    return EkfPositionHealth(
+        horizontal_absolute=bool(flags & EKF_POS_HORIZ_ABS_BIT),
+        constant_position_mode=bool(flags & EKF_CONST_POS_MODE_BIT),
     )
 
 
