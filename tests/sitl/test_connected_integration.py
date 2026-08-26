@@ -1,9 +1,9 @@
 """Genuine Task 009 production-boundary evidence against pinned stock SITL.
 
 The two vehicle-control stimuli in this file are acceptance-test scaffolding only:
-normal arm (force value zero) and AUTO mode are required to make stock ArduCopter
-execute an uploaded mission.  They are intentionally absent from ``src/`` and do
-not create a reusable command boundary or UI control.
+normal arm (force value zero) and native mission start are required to make stock
+ArduCopter enter AUTO and execute an uploaded mission.  They are intentionally absent
+from ``src/`` and do not create a reusable command boundary or UI control.
 """
 
 from __future__ import annotations
@@ -247,7 +247,7 @@ def _wait_ekf_position_ready(
     )
 
 
-def _auto_then_normal_arm(
+def _normal_arm_then_native_mission_start(
     connection: Any,
     trace: list[dict[str, object]],
     prearm_health: PrearmHealth,
@@ -259,25 +259,6 @@ def _auto_then_normal_arm(
     # its enabled pre-arm checks are healthy on the same live connection.
     assert prearm_health.ready
     assert position_health.ready
-    connection.mav.set_mode_send(
-        TARGET.system_id,
-        int(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
-        3,
-    )
-    _wait_message(
-        connection,
-        lambda message: (
-            message.get_type() == "HEARTBEAT"
-            and message.get_srcSystem() == TARGET.system_id
-            and int(message.custom_mode) == 3
-            and not (int(message.base_mode) & int(mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED))
-        ),
-        timeout_s=15.0,
-        trace=trace,
-    )
-
-    # Stock Copter begins an AUTO mission when it is normally armed after the
-    # mode is selected.  No MAV_CMD_MISSION_START stimulus is used.
     arm_command = int(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
     deadline_s = time.monotonic() + 60.0
     armed = False
@@ -315,6 +296,57 @@ def _auto_then_normal_arm(
             "stock SITL did not accept a normal, non-forced arm request; native trace="
             + json.dumps(trace[-30:], sort_keys=True)
         )
+
+    # Pinned Copter intentionally rejects normal arming in AUTO when AUTO_OPTIONS=0.
+    # Its native mission-start handler enters AUTO and starts/resumes the mission after
+    # this normal arm, so the acceptance test follows that exact stock sequence.
+    mission_start_command = int(mavutil.mavlink.MAV_CMD_MISSION_START)
+    trace.append(
+        {
+            "elapsed_monotonic_s": time.monotonic(),
+            "message_type": "COMMAND_LONG_NATIVE_MISSION_START",
+            "fields": {
+                "command": mission_start_command,
+                "first_item": 0,
+                "last_item": 0,
+            },
+        }
+    )
+    connection.mav.command_long_send(
+        TARGET.system_id,
+        TARGET.component_id,
+        mission_start_command,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
+    _wait_message(
+        connection,
+        lambda message: (
+            message.get_type() == "COMMAND_ACK"
+            and message.get_srcSystem() == TARGET.system_id
+            and int(message.command) == mission_start_command
+            and int(message.result) == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+        ),
+        timeout_s=15.0,
+        trace=trace,
+    )
+    _wait_message(
+        connection,
+        lambda message: (
+            message.get_type() == "HEARTBEAT"
+            and message.get_srcSystem() == TARGET.system_id
+            and int(message.custom_mode) == 3
+            and bool(int(message.base_mode) & int(mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED))
+        ),
+        timeout_s=15.0,
+        trace=trace,
+    )
 
 
 def _record_execution_message(trace: list[dict[str, object]], message: Any) -> None:
@@ -524,7 +556,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             execution_trace,
             timeout_s=max(0.0, readiness_deadline_s - time.monotonic()),
         )
-        _auto_then_normal_arm(
+        _normal_arm_then_native_mission_start(
             sik_connection,
             execution_trace,
             prearm_health,
@@ -599,7 +631,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         "reference_verification": verification_to_document(reference),
         "execution": {
             "normal_arm_force_value": 0,
-            "stimulus_order": ["AUTO while disarmed", "normal non-forced arm"],
+            "stimulus_order": ["normal non-forced arm", "native mission start into AUTO"],
             "prearm_health": asdict(prearm_health),
             "ekf_position_health": asdict(position_health),
             "auto_stimulus_location": "tests/sitl/test_connected_integration.py only",

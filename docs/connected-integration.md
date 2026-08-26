@@ -62,12 +62,15 @@ live Home translation, mission upload and exact readback, disconnect/restart ove
 explicitly classified SiK link, same-vehicle comparison, read-only telemetry, execution
 of Takeoff–Proceed–Hold–Circle–Land, and a protocol-independent raw reference readback.
 
-Stock Copter cannot execute a mission without normal arming and AUTO mode. The two
-necessary stimuli exist only in `tests/sitl/test_connected_integration.py`, use normal
-arm with force value zero, target ephemeral stock SITL, and are not reusable production
-or UI APIs. After readiness, the test selects AUTO while disarmed and then sends the
-normal arm; it does not send `MAV_CMD_MISSION_START`. Before either stimulus, the test
-requires a fresh same-connection
+Stock Copter cannot execute a mission without normal arming and native mission start.
+The two necessary stimuli exist only in `tests/sitl/test_connected_integration.py`, use
+normal arm with force value zero, target ephemeral stock SITL, and are not reusable
+production or UI APIs. After readiness, the test normally arms in the initial mode and
+then sends `MAV_CMD_MISSION_START` with its supported first/last-item parameters both
+zero. The pinned 4.6.3 handler enters AUTO, sets the internal auto-armed state, and
+starts or resumes the uploaded mission. This order is required because stock
+`AUTO_OPTIONS=0` deliberately rejects a separate normal arm request made after AUTO is
+selected. Before either stimulus, the test requires a fresh same-connection
 `SYS_STATUS` proving ArduPilot's enabled pre-arm bit is healthy. The harness launches
 with the exact official Copter defaults selected by the pinned source's `quad` mapping;
 their hash and effective `FRAME_CLASS=1` / `FRAME_TYPE=0` are retained in evidence.
