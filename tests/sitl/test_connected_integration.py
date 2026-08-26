@@ -126,6 +126,35 @@ def _request_home_position(connection: Any) -> None:
     )
 
 
+def _request_extended_system_state(connection: Any, trace: list[dict[str, object]]) -> None:
+    from pymavlink import mavutil
+
+    message_id = int(mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE)
+    trace.append(
+        {
+            "elapsed_monotonic_s": time.monotonic(),
+            "message_type": "COMMAND_LONG_REQUEST_EXTENDED_SYS_STATE",
+            "fields": {
+                "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+                "requested_message_id": message_id,
+            },
+        }
+    )
+    connection.mav.command_long_send(
+        TARGET.system_id,
+        TARGET.component_id,
+        int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+        0,
+        message_id,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
+
+
 def _wait_prearm_ready(
     connection: Any,
     trace: list[dict[str, object]],
@@ -472,6 +501,8 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     sitl_target_identity: SitlTargetIdentity,
     request: pytest.FixtureRequest,
 ) -> None:
+    from pymavlink import mavutil
+
     evidence_root = Path(os.environ["SKYWRITER_SITL_EVIDENCE"])
     clock = MonotonicClock()
     cancellation = NeverCancelled()
@@ -566,16 +597,25 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         # Preserve native pre-arm/arm evidence even when the test fails closed.
         _write_execution_trace(execution_trace_path, execution_trace)
     final_sequence = len(expected.items) - 1
+    assert expected.items[final_sequence].command == int(mavutil.mavlink.MAV_CMD_NAV_LAND)
+    sequence_before_land = final_sequence - 1
     reached: set[int] = set()
     execution_deadline_s = time.monotonic() + 120.0
     landed_disarmed = False
+    max_relative_altitude_m = 0.0
     while time.monotonic() < execution_deadline_s:
+        # Direct stock-binary sessions do not stream this state by default. A
+        # read-only request lets the accepted telemetry adapter prove landing.
+        _request_extended_system_state(sik_connection, execution_trace)
         service.refresh_telemetry(sik, duration_s=3.0, cancellation=cancellation)
         telemetry = service.snapshot.telemetry
         assert telemetry is not None
         progress = telemetry.mission.value
         heartbeat = telemetry.heartbeat.value
+        position = telemetry.position.value
         extended = telemetry.extended_state.value
+        if position is not None:
+            max_relative_altitude_m = max(max_relative_altitude_m, position.relative_altitude_m)
         if progress is not None:
             if progress.current_sequence is not None:
                 reached.add(progress.current_sequence)
@@ -592,6 +632,9 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
                     "last_reached_sequence": (
                         None if progress is None else progress.last_reached_sequence
                     ),
+                    "relative_altitude_m": (
+                        None if position is None else position.relative_altitude_m
+                    ),
                     "landed_state": (None if extended is None else extended.landed_state),
                 },
             }
@@ -601,8 +644,11 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             heartbeat is not None
             and not heartbeat.armed
             and extended is not None
-            and extended.landed_state == 1
-            and final_sequence in reached
+            and extended.landed_state == int(mavutil.mavlink.MAV_LANDED_STATE_ON_GROUND)
+            # Pinned Copter disarms inside NAV_LAND and deliberately returns
+            # incomplete, so it does not emit ITEM_REACHED for the Land item.
+            and sequence_before_land in reached
+            and max_relative_altitude_m >= 2.0
         )
         if landed_disarmed:
             break
@@ -635,8 +681,10 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "prearm_health": asdict(prearm_health),
             "ekf_position_health": asdict(position_health),
             "auto_stimulus_location": "tests/sitl/test_connected_integration.py only",
-            "final_sequence": final_sequence,
+            "final_land_sequence": final_sequence,
+            "last_required_reached_sequence": sequence_before_land,
             "observed_sequences": sorted(reached),
+            "max_relative_altitude_m": max_relative_altitude_m,
             "landed_disarmed": landed_disarmed,
             "trace": execution_trace,
         },
