@@ -116,6 +116,13 @@ SITL stdout/stderr, readiness protocol trace, `connected-integration.json`, tear
 result, and `SHA256SUMS`, including on failure. The workflow uploads the complete tree
 for 30 days.
 
+Task 100 extends this same twice-fresh connected evidence path only after same-vehicle SiK
+verification. It runs the dedicated production native pre-arm request/review boundary,
+then uses Task 009's existing normal non-forced arm scaffold to prove the pinned handler's
+armed `MAV_RESULT_TEMPORARILY_REJECTED` response. The latter bypasses the application gate
+only inside this SITL evidence file; production is separately proven to block an armed
+request before any transmission. See [`native-prearm.md`](native-prearm.md).
+
 ## Platform and hardware limits
 
 The official pinned SITL artifact is Linux x86_64. Windows developers can run all

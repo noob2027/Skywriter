@@ -1,26 +1,61 @@
-"""Read-only preflight telemetry presentation."""
+"""Task 100 preflight telemetry and native readiness-review presentation."""
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from dataclasses import dataclass
+from typing import TypeAlias
 
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from skywriter.application.prearm import (
+    NativePrearmAssessment,
+    PrearmReadinessSnapshot,
+    PrearmRequestState,
+)
 from skywriter.application.telemetry import TelemetryFreshness, TelemetrySnapshot
 from skywriter.ui.telemetry import NativeMessagesList, TelemetryCard, render_signal
 
 
+@dataclass(frozen=True, slots=True)
+class NativePrearmChecksRequested:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class PrearmReviewAcknowledgmentRequested:
+    acknowledged: bool
+
+
+PreflightIntent: TypeAlias = NativePrearmChecksRequested | PrearmReviewAcknowledgmentRequested
+
+
 class PreflightTelemetryWidget(QWidget):
-    """Display native observations without asserting readiness or offering controls."""
+    """Emit typed intents and render application-owned native review state."""
+
+    intent_emitted = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()
+        self._readiness = PrearmReadinessSnapshot()
         self.setObjectName("preflightTelemetryView")
         root = QVBoxLayout(self)
         heading = QLabel("Preflight telemetry")
         heading.setObjectName("viewHeading")
         heading.setStyleSheet("font-size: 24px; font-weight: 700; color: #173f3d;")
         disclaimer = QLabel(
-            "READ-ONLY NATIVE STATUS — unavailable or stale data is not approval. "
-            "ArduCopter remains the authority for pre-arm checks and flight readiness."
+            "NATIVE PRE-ARM REVIEW — telemetry remains READ-ONLY. This request only asks "
+            "ArduCopter to run its checks. An accepted request is not proof that the aircraft "
+            "will arm, and unavailable data or silence is never approval."
         )
         disclaimer.setObjectName("preflightTelemetryDisclaimer")
         disclaimer.setWordWrap(True)
@@ -29,6 +64,45 @@ class PreflightTelemetryWidget(QWidget):
         )
         root.addWidget(heading)
         root.addWidget(disclaimer)
+
+        command_panel = QFrame()
+        command_panel.setObjectName("nativePrearmReviewPanel")
+        command_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        command_layout = QVBoxLayout(command_panel)
+        command_heading = QLabel("Native pre-arm request")
+        command_heading.setStyleSheet("font-size: 16px; font-weight: 700;")
+        self._request_status = QLabel()
+        self._request_status.setObjectName("nativePrearmRequestStatus")
+        self._request_status.setWordWrap(True)
+        self._request_detail = QLabel()
+        self._request_detail.setObjectName("nativePrearmRequestDetail")
+        self._request_detail.setWordWrap(True)
+        self._native_assessment = QLabel()
+        self._native_assessment.setObjectName("nativePrearmAssessment")
+        self._native_assessment.setWordWrap(True)
+        self._hardware_safety = QLabel()
+        self._hardware_safety.setObjectName("nativeHardwareSafety")
+        self._hardware_safety.setWordWrap(True)
+        self._application_gate = QLabel()
+        self._application_gate.setObjectName("nativePrearmApplicationGate")
+        self._application_gate.setWordWrap(True)
+        command_actions = QHBoxLayout()
+        self._request_button = QPushButton("Request native pre-arm checks")
+        self._request_button.setObjectName("requestNativePrearmButton")
+        self._review_ack = QCheckBox(
+            "I reviewed the native result and every available observation shown below."
+        )
+        self._review_ack.setObjectName("acknowledgeNativePrearmReview")
+        command_actions.addWidget(self._request_button)
+        command_actions.addWidget(self._review_ack, 1)
+        command_layout.addWidget(command_heading)
+        command_layout.addWidget(self._request_status)
+        command_layout.addWidget(self._request_detail)
+        command_layout.addWidget(self._native_assessment)
+        command_layout.addWidget(self._hardware_safety)
+        command_layout.addWidget(self._application_gate)
+        command_layout.addLayout(command_actions)
+        root.addWidget(command_panel)
 
         identity_row = QHBoxLayout()
         self._identity = TelemetryCard("Vehicle identity", "telemetryIdentity")
@@ -57,7 +131,53 @@ class PreflightTelemetryWidget(QWidget):
         root.addWidget(messages_label)
         self._messages = NativeMessagesList()
         root.addWidget(self._messages, 1)
+        self._request_button.clicked.connect(self._emit_prearm_request)
+        self._review_ack.toggled.connect(
+            lambda checked: self.intent_emitted.emit(PrearmReviewAcknowledgmentRequested(checked))
+        )
         self.render_snapshot(None, now_s=0.0)
+        self.render_readiness(self._readiness, now_s=0.0)
+
+    def _emit_prearm_request(self) -> None:
+        # Disable synchronously so a double-click cannot queue a second worker transaction.
+        self._request_button.setEnabled(False)
+        self.intent_emitted.emit(NativePrearmChecksRequested())
+
+    @property
+    def readiness_snapshot(self) -> PrearmReadinessSnapshot:
+        return self._readiness
+
+    def render_readiness(self, readiness: PrearmReadinessSnapshot, *, now_s: float) -> None:
+        self._readiness = readiness
+        self.render_snapshot(readiness.telemetry, now_s=now_s)
+        self._request_status.setText(_request_state_text(readiness.request_state))
+        repeated = (
+            " Repeated request ignored while the original request remained active."
+            if readiness.repeated_request_ignored
+            else ""
+        )
+        self._request_detail.setText(f"{readiness.detail}{repeated}")
+        self._native_assessment.setText(_assessment_text(readiness.native_assessment))
+        self._hardware_safety.setText(f"Hardware safety: {readiness.hardware_safety_text}")
+        if readiness.application_gate_ready:
+            self._application_gate.setText(
+                "Application readiness gate: Reviewed — not proof ArduCopter will arm."
+            )
+        else:
+            self._application_gate.setText(
+                "Application readiness gate: Blocked — accepted, healthy, current evidence and "
+                "explicit review are required."
+            )
+        self._request_button.setEnabled(readiness.request_state is not PrearmRequestState.PENDING)
+        self._review_ack.blockSignals(True)
+        self._review_ack.setChecked(readiness.review_acknowledged)
+        self._review_ack.setEnabled(readiness.review_available)
+        self._review_ack.blockSignals(False)
+        if readiness.native_messages:
+            current = () if readiness.telemetry is None else readiness.telemetry.native_messages
+            combined = (*current, *readiness.native_messages)
+            self._messages.render_messages((message.severity, message.text) for message in combined)
+            self._messages.scrollToBottom()
 
     def render_snapshot(self, snapshot: TelemetrySnapshot | None, *, now_s: float) -> None:
         if snapshot is None:
@@ -159,3 +279,41 @@ def _available(value: object | None) -> str:
 
 def _measurement(value: int | float | None, unit: str) -> str:
     return "unavailable" if value is None else f"{value:g} {unit}"
+
+
+def _request_state_text(state: PrearmRequestState) -> str:
+    return {
+        PrearmRequestState.IDLE: "Not requested",
+        PrearmRequestState.PENDING: "Request pending — controls locked",
+        PrearmRequestState.ACCEPTED: "Request accepted — not arm approval",
+        PrearmRequestState.REJECTED: "Request rejected by ArduCopter",
+        PrearmRequestState.UNSUPPORTED: "Native request unsupported",
+        PrearmRequestState.TIMED_OUT: "Request timed out — readiness unknown",
+        PrearmRequestState.WRONG_TARGET: "Wrong-target acknowledgment — blocked",
+        PrearmRequestState.WRONG_ACK: "Unrelated or misaddressed acknowledgment — blocked",
+        PrearmRequestState.STALE_LINK: "SiK heartbeat stale — blocked",
+        PrearmRequestState.LINK_LOST: "SiK link lost — blocked",
+        PrearmRequestState.CANCELLED: "Request cancelled — blocked",
+        PrearmRequestState.BLOCKED_WRONG_LINK: "SiK link required",
+        PrearmRequestState.BLOCKED_ARMED: "Vehicle is armed — request blocked",
+        PrearmRequestState.BLOCKED_MISSION: "Exact current mission verification required",
+        PrearmRequestState.BLOCKED_IDENTITY: "Same-target identity unresolved",
+    }[state]
+
+
+def _assessment_text(assessment: NativePrearmAssessment) -> str:
+    return {
+        NativePrearmAssessment.UNAVAILABLE: (
+            "Native check observation: unavailable. Silence is not readiness."
+        ),
+        NativePrearmAssessment.HEALTHY: (
+            "Native check observation: SYS_STATUS pre-arm bit is present, enabled, and healthy. "
+            "ArduCopter may still reject a later arm request."
+        ),
+        NativePrearmAssessment.FAILED: (
+            "Native check observation: failure or unhealthy pre-arm state reported — blocked."
+        ),
+        NativePrearmAssessment.CONFLICTING: (
+            "Native check observation: STATUSTEXT and telemetry disagree — blocked."
+        ),
+    }[assessment]

@@ -4,12 +4,20 @@ from skywriter.ui.connected import ConnectedMissionWidget
 from skywriter.ui.flight import FlightTelemetryWidget
 from skywriter.ui.main_window import MainWindow
 from skywriter.ui.offline_workspace import OfflineMissionWorkspace
-from skywriter.ui.preflight import PreflightTelemetryWidget
+from skywriter.ui.preflight import (
+    NativePrearmChecksRequested,
+    PrearmReviewAcknowledgmentRequested,
+    PreflightIntent,
+    PreflightTelemetryWidget,
+)
 
 __all__ = [
     "ConnectedMissionWidget",
     "FlightTelemetryWidget",
     "MainWindow",
+    "NativePrearmChecksRequested",
     "OfflineMissionWorkspace",
+    "PrearmReviewAcknowledgmentRequested",
+    "PreflightIntent",
     "PreflightTelemetryWidget",
 ]

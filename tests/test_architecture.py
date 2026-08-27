@@ -68,7 +68,6 @@ def test_compatibility_envelopes_are_pure_and_transport_independent() -> None:
 def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
     deferred_api_fragments = (
         "PARAM" + "_SET",
-        "command_" + "long_send",
         "set_" + "mode_send",
         "MAV_CMD_COMPONENT_" + "ARM_DISARM",
         "MAV_CMD_NAV_" + "RETURN_TO_LAUNCH",
@@ -77,6 +76,23 @@ def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
         path.read_text(encoding="utf-8") for path in sorted(SOURCE_ROOT.rglob("*.py"))
     )
     assert not any(fragment in source for fragment in deferred_api_fragments)
+
+
+def test_task100_command_long_is_confined_to_exact_native_prearm_emission() -> None:
+    fragment = "command_" + "long_send"
+    users = {
+        path.relative_to(SOURCE_ROOT): path.read_text(encoding="utf-8").count(fragment)
+        for path in sorted(SOURCE_ROOT.rglob("*.py"))
+        if fragment in path.read_text(encoding="utf-8")
+    }
+
+    assert users == {Path("infrastructure/mavlink/connection.py"): 1}
+    connection_source = (SOURCE_ROOT / "infrastructure/mavlink/connection.py").read_text(
+        encoding="utf-8"
+    )
+    assert "MAV_CMD_RUN_PREARM_CHECKS = 401" in connection_source
+    assert "def send_prearm_checks" in connection_source
+    assert "def send_command" not in connection_source
 
 
 def test_pymavlink_is_confined_to_the_authorized_connection_adapter() -> None:

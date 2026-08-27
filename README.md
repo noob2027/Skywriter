@@ -77,6 +77,11 @@ evidence, and remaining hardware limits are documented in
 [`docs/connected-integration.md`](docs/connected-integration.md). Task 009 adds no
 production flight-command or parameter-write surface.
 
+The first serial flight-control compartment is the dedicated native pre-arm request and
+operator readiness review documented in [`docs/native-prearm.md`](docs/native-prearm.md).
+It exposes only command 401, preserves native ACK/`STATUSTEXT` meaning, and never treats
+an accepted request or silence as proof that ArduCopter will arm.
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.
@@ -134,6 +139,7 @@ The documents in this starter package are the implementation source of truth. Be
 - [`docs/product-specification.md`](docs/product-specification.md): user behavior, requirements, exclusions, and acceptance criteria
 - [`docs/architecture.md`](docs/architecture.md): domain model, state machines, interfaces, protocol boundaries, and test seams
 - [`docs/connected-integration.md`](docs/connected-integration.md): USB/SiK composition, invalidation, and stock-SITL evidence
+- [`docs/native-prearm.md`](docs/native-prearm.md): exact native pre-arm request, review gate, and SITL evidence boundary
 - [`docs/development-plan.md`](docs/development-plan.md): phases, branch/PR workflow, gates, and validation ladder
 - [`AGENTS.md`](AGENTS.md): binding repository rules for Codex and human contributors
 - [`codex-tasks/README.md`](codex-tasks/README.md): launch order and bounded handoffs
