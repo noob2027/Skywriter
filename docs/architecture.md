@@ -199,6 +199,18 @@ produce an application gate only with current healthy native sensor evidence, an
 mission, target, link, or armed-state change invalidates it. Qt emits typed request and
 review intents; the blocking transaction remains worker-owned.
 
+Task 101 adds a separate `NormalArmService` and `NativeNormalArmGateway`. The service
+reuses Task 100's exact reviewed context instead of duplicating native readiness logic,
+then revalidates same-target SiK identity, disarmed/fresh telemetry, verified mission,
+and idle command ownership. The gateway and concrete link expose only the normal Arm
+operation with fixed parameters; no generic or Disarm surface exists.
+
+An accepted command-400 ACK begins a second bounded state, not success. Only a later
+selected-target heartbeat with the armed bit can produce `ARMED`. Missing telemetry,
+fresh disarmed telemetry, wrong ACK/target, cancellation, and link loss remain distinct
+fail-closed or uncertain states. Qt hands the blocking application callable to a real
+thread-pool worker and receives immutable snapshots back on the UI thread.
+
 Readiness is derived, never toggled directly by a widget. Example predicates:
 
 ```text
@@ -250,6 +262,10 @@ The first implemented method is the exact pinned `request_prearm_checks()` path.
 returns accepted even when a check reports failure. SKYWriter therefore correlates ACK,
 preserves `STATUSTEXT` and `SYS_STATUS` evidence, and requires deliberate review without
 claiming native arm readiness.
+
+The second implemented method is the exact normal-only `request_normal_arm()` path.
+It accepts no command ID or parameter arguments, requires the current reviewed Task 100
+fingerprint, and cannot present Armed until selected-target telemetry confirms it.
 
 ## 8. Map isolation
 

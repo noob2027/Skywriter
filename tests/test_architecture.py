@@ -69,7 +69,6 @@ def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
     deferred_api_fragments = (
         "PARAM" + "_SET",
         "set_" + "mode_send",
-        "MAV_CMD_COMPONENT_" + "ARM_DISARM",
         "MAV_CMD_NAV_" + "RETURN_TO_LAUNCH",
     )
     source = "\n".join(
@@ -78,7 +77,7 @@ def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
     assert not any(fragment in source for fragment in deferred_api_fragments)
 
 
-def test_task100_command_long_is_confined_to_exact_native_prearm_emission() -> None:
+def test_task100_and_101_command_long_emissions_remain_exact_and_confined() -> None:
     fragment = "command_" + "long_send"
     users = {
         path.relative_to(SOURCE_ROOT): path.read_text(encoding="utf-8").count(fragment)
@@ -86,13 +85,36 @@ def test_task100_command_long_is_confined_to_exact_native_prearm_emission() -> N
         if fragment in path.read_text(encoding="utf-8")
     }
 
-    assert users == {Path("infrastructure/mavlink/connection.py"): 1}
+    assert users == {Path("infrastructure/mavlink/connection.py"): 2}
     connection_source = (SOURCE_ROOT / "infrastructure/mavlink/connection.py").read_text(
         encoding="utf-8"
     )
     assert "MAV_CMD_RUN_PREARM_CHECKS = 401" in connection_source
+    assert "MAV_CMD_COMPONENT_ARM_DISARM = 400" in connection_source
     assert "def send_prearm_checks" in connection_source
+    assert "def send_normal_arm" in connection_source
     assert "def send_command" not in connection_source
+    assert "2989" not in connection_source
+    assert "21196" not in connection_source
+
+
+def test_task101_adds_no_generic_or_later_vehicle_action_surface() -> None:
+    source = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(SOURCE_ROOT.rglob("*.py"))
+    )
+    prohibited = (
+        "def disarm",
+        "def set_mode",
+        "def start_auto",
+        "def pause",
+        "def resume",
+        "def land_now",
+        "def rtl",
+        "def set_parameter",
+        "def send_command",
+        "def send_setpoint",
+    )
+    assert not any(fragment in source for fragment in prohibited)
 
 
 def test_pymavlink_is_confined_to_the_authorized_connection_adapter() -> None:

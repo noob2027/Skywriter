@@ -161,10 +161,10 @@ Run one task and merge it before starting the next:
 Each PR needs positive and rejected-command SITL tests, timeout/link-loss tests, UI state tests, exact acknowledgment handling, and a review confirming no generic command API, force arm, bypass, parameter write, RTL, or mid-air disarm.
 
 Task 100 implements only the first item through a dedicated command-401 gateway and an
-application-owned review state. It does not authorize or implement Task 101 Arm. The
-pinned handler's armed-only rejection is exercised using Task 009's isolated test-only
-normal-arm scaffold; the production Task 100 gate is separately proven to send nothing
-while armed.
+application-owned review state. Task 101 implements only the second item through a
+dedicated command-400 gateway, current-review application gate, and post-ACK armed
+telemetry confirmation. It adds no Task 102 AUTO start or later action. The pinned
+positive and native rejection paths run twice in fresh isolated stock-SITL processes.
 
 ## 10. Validation ladder
 

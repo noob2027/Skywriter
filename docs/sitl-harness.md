@@ -67,9 +67,9 @@ behavior.
 That statement describes the reusable Task 006 readiness fixture. Task 009 adds a
 separate connected-integration test after readiness releases its probe connection. The
 test composes production mission/telemetry boundaries, uploads and verifies one mixed
-mission, reconnects, and executes it. Normal arm with force value zero and AUTO are
-confined to that test file because stock Copter requires both to execute a mission;
-they are not harness fixtures, production APIs, or UI controls. The Task 009 test uses
+mission, reconnects, and executes it. Task 101 now supplies the production normal-only
+Arm boundary; AUTO remains confined to that test file because stock Copter requires it
+to execute a mission. Neither becomes a reusable harness fixture. The test uses
 an explicit read-only `MAV_CMD_REQUEST_MESSAGE(SYS_STATUS)` handshake on the live SiK
 connection and cannot send the normal arm until the returned pre-arm bitmap is present,
 enabled, and healthy. See
@@ -126,11 +126,12 @@ SKYWRITER_SITL_BASE_PORT=26200 \
 python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
 ```
 
-After Task 100, that connected test also runs the positive production native-prearm
-request/review and the exact stock armed-rejection evidence. The workflow still launches
-two fresh processes and retains all raw ACK/`STATUSTEXT`, review, startup, teardown, and
-hash-ledger evidence in each connected directory. No reusable harness fixture gains an
-Arm or generic-command surface.
+After Tasks 100 and 101, that connected test runs the production native-prearm
+request/review and production normal Arm, requires its exact ACK plus later armed
+heartbeat, and captures a rejected normal Arm after native Land auto-disarms in AUTO.
+The workflow still launches two fresh processes and retains all raw ACK/`STATUSTEXT`,
+review, startup, teardown, and hash-ledger evidence in each connected directory. No
+reusable harness fixture gains a command surface.
 
 Use a different explicit block for a concurrent run, or omit
 `SKYWRITER_SITL_BASE_PORT` to lease the first free managed block. A requested block

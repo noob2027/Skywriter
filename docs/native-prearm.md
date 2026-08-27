@@ -93,12 +93,13 @@ same-vehicle SiK verification. It preserves the exact command fields, matching
 ACK, associated `STATUSTEXT`, typed assessment, operator-review state, and safety
 declarations in the existing hashed evidence tree.
 
-The pinned handler's only negative return is its armed case. The rejected-command
-evidence therefore reuses Task 009's already accepted, test-only normal non-forced
-arm scaffold and calls the narrow gateway directly while stock SITL is armed. The
+The pinned handler's only negative return is its armed case. The Task 100 evidence
+calls the narrow pre-arm gateway directly while stock SITL is armed, while the
 production application service is separately proven to block before transmission
-for an armed snapshot. No Arm API is added to `src/`, no force value is used, and
-the simulator process is terminated without a disarm command.
+for an armed snapshot. Task 101 subsequently replaces the old test-only positive
+arming stimulus with its dedicated normal-only production boundary; it does not
+change this pre-arm request/review behavior. See [`normal-arm.md`](normal-arm.md).
+The simulator still terminates without a Disarm command.
 
 The Ubuntu workflow runs this positive and rejected-command path twice in fresh,
 isolated stock processes. The same evidence artifact retains the verified binary

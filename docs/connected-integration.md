@@ -63,11 +63,12 @@ explicitly classified SiK link, same-vehicle comparison, read-only telemetry, ex
 of Takeoff–Proceed–Hold–Circle–Land, and a protocol-independent raw reference readback.
 
 Stock Copter cannot execute a mission without normal arming and native mission start.
-The two necessary stimuli exist only in `tests/sitl/test_connected_integration.py`, use
-normal arm with force value zero, target ephemeral stock SITL, and are not reusable
-production or UI APIs. After readiness, the test normally arms in the initial mode and
-then sends `MAV_CMD_MISSION_START` with its supported first/last-item parameters both
-zero. The pinned 4.6.3 handler enters AUTO, sets the internal auto-armed state, and
+Task 101 routes normal Arm through its production application/gateway boundary with the
+fixed normal value, exact ACK correlation, and later armed-heartbeat proof. Native
+mission start remains isolated in `tests/sitl/test_connected_integration.py`; it is not
+a reusable production or UI API. After readiness, the test normally arms in the initial
+mode and then sends `MAV_CMD_MISSION_START` with its supported first/last-item parameters
+both zero. The pinned 4.6.3 handler enters AUTO, sets the internal auto-armed state, and
 starts or resumes the uploaded mission. This order is required because stock
 `AUTO_OPTIONS=0` deliberately rejects a separate normal arm request made after AUTO is
 selected. Before either stimulus, the test requires a fresh same-connection
@@ -75,11 +76,10 @@ selected. Before either stimulus, the test requires a fresh same-connection
 with the exact official Copter defaults selected by the pinned source's `quad` mapping;
 their hash and effective `FRAME_CLASS=1` / `FRAME_TYPE=0` are retained in evidence.
 This is stock startup initialization through `--defaults`, not a MAVLink parameter
-write. Later Tasks 100–102 still own native pre-arm review, production normal-arm, and
-production AUTO-start compartments.
+write. Task 102 still owns the production AUTO-start compartment.
 
 The direct stock-binary TCP session does not assume an ambient `SYS_STATUS` stream.
-The same-connection check immediately before the test-only arm uses a bounded read-only
+The same-connection check immediately before the normal Arm uses a bounded read-only
 `MAV_CMD_REQUEST_MESSAGE(SYS_STATUS)` handshake. It never invokes
 `MAV_CMD_RUN_PREARM_CHECKS`; an accepted request-message command is not treated as
 readiness unless the returned health bitmap itself passes. Reusable Task 006 readiness
@@ -104,7 +104,7 @@ incomplete, leaving the state machine on the Land item; it therefore does not em
 of demanding an event the pin does not produce.
 
 The protocol-independent exact readback runs on the same SiK-classified connection after
-same-vehicle re-verification and before the test-only flight stimulus. This placement is
+same-vehicle re-verification and before the flight stimulus. This placement is
 intentional: pinned Copter constructs sequence 0 from live `AP::ahrs().get_home()` on
 every request, so normal estimator refinement during flight can change its reported
 altitude by a centimetre even though stored mission items are unchanged. Moving the
@@ -116,12 +116,13 @@ SITL stdout/stderr, readiness protocol trace, `connected-integration.json`, tear
 result, and `SHA256SUMS`, including on failure. The workflow uploads the complete tree
 for 30 days.
 
-Task 100 extends this same twice-fresh connected evidence path only after same-vehicle SiK
-verification. It runs the dedicated production native pre-arm request/review boundary,
-then uses Task 009's existing normal non-forced arm scaffold to prove the pinned handler's
-armed `MAV_RESULT_TEMPORARILY_REJECTED` response. The latter bypasses the application gate
-only inside this SITL evidence file; production is separately proven to block an armed
-request before any transmission. See [`native-prearm.md`](native-prearm.md).
+Task 100 extends this same twice-fresh connected evidence path only after same-vehicle
+SiK verification. Task 101 then consumes its current reviewed fingerprint and runs the
+positive normal Arm through the production boundary. After native Land auto-disarms
+while Copter remains in AUTO, the same closed gateway captures a native rejected normal
+Arm as isolated test evidence; the now-invalid production review gate would send
+nothing. See [`native-prearm.md`](native-prearm.md) and
+[`normal-arm.md`](normal-arm.md).
 
 ## Platform and hardware limits
 
