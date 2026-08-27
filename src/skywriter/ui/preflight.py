@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TypeAlias
 
@@ -17,12 +18,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from skywriter.application.arm import NormalArmSnapshot, NormalArmState
 from skywriter.application.prearm import (
     NativePrearmAssessment,
     PrearmReadinessSnapshot,
     PrearmRequestState,
 )
 from skywriter.application.telemetry import TelemetryFreshness, TelemetrySnapshot
+from skywriter.ui.arm_worker import NormalArmWorkerHandoff
 from skywriter.ui.telemetry import NativeMessagesList, TelemetryCard, render_signal
 
 
@@ -36,7 +39,14 @@ class PrearmReviewAcknowledgmentRequested:
     acknowledged: bool
 
 
-PreflightIntent: TypeAlias = NativePrearmChecksRequested | PrearmReviewAcknowledgmentRequested
+@dataclass(frozen=True, slots=True)
+class NormalArmRequested:
+    pass
+
+
+PreflightIntent: TypeAlias = (
+    NativePrearmChecksRequested | PrearmReviewAcknowledgmentRequested | NormalArmRequested
+)
 
 
 class PreflightTelemetryWidget(QWidget):
@@ -47,6 +57,8 @@ class PreflightTelemetryWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self._readiness = PrearmReadinessSnapshot()
+        self._arm = NormalArmSnapshot()
+        self._arm_worker: NormalArmWorkerHandoff | None = None
         self.setObjectName("preflightTelemetryView")
         root = QVBoxLayout(self)
         heading = QLabel("Preflight telemetry")
@@ -104,6 +116,37 @@ class PreflightTelemetryWidget(QWidget):
         command_layout.addLayout(command_actions)
         root.addWidget(command_panel)
 
+        arm_panel = QFrame()
+        arm_panel.setObjectName("normalArmPanel")
+        arm_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        arm_layout = QVBoxLayout(arm_panel)
+        arm_heading = QLabel("Normal acknowledged Arm")
+        arm_heading.setStyleSheet("font-size: 16px; font-weight: 700;")
+        arm_warning = QLabel(
+            "ARM CHANGES VEHICLE STATE. The action remains blocked until the current mission, "
+            "SiK telemetry, and reviewed native readiness evidence all match. An accepted "
+            "acknowledgment is not shown as Armed without later selected-target telemetry."
+        )
+        arm_warning.setObjectName("normalArmWarning")
+        arm_warning.setWordWrap(True)
+        arm_warning.setStyleSheet(
+            "padding: 9px; background: #ffe2d5; color: #762500; font-weight: 700;"
+        )
+        self._arm_status = QLabel()
+        self._arm_status.setObjectName("normalArmStatus")
+        self._arm_status.setWordWrap(True)
+        self._arm_detail = QLabel()
+        self._arm_detail.setObjectName("normalArmDetail")
+        self._arm_detail.setWordWrap(True)
+        self._arm_button = QPushButton("Arm normally")
+        self._arm_button.setObjectName("normalArmButton")
+        arm_layout.addWidget(arm_heading)
+        arm_layout.addWidget(arm_warning)
+        arm_layout.addWidget(self._arm_status)
+        arm_layout.addWidget(self._arm_detail)
+        arm_layout.addWidget(self._arm_button)
+        root.addWidget(arm_panel)
+
         identity_row = QHBoxLayout()
         self._identity = TelemetryCard("Vehicle identity", "telemetryIdentity")
         self._connection = TelemetryCard("Connection freshness", "telemetryConnection")
@@ -132,20 +175,80 @@ class PreflightTelemetryWidget(QWidget):
         self._messages = NativeMessagesList()
         root.addWidget(self._messages, 1)
         self._request_button.clicked.connect(self._emit_prearm_request)
+        self._arm_button.clicked.connect(self._emit_normal_arm_request)
         self._review_ack.toggled.connect(
             lambda checked: self.intent_emitted.emit(PrearmReviewAcknowledgmentRequested(checked))
         )
         self.render_snapshot(None, now_s=0.0)
         self.render_readiness(self._readiness, now_s=0.0)
+        self.render_arm(self._arm)
 
     def _emit_prearm_request(self) -> None:
         # Disable synchronously so a double-click cannot queue a second worker transaction.
         self._request_button.setEnabled(False)
         self.intent_emitted.emit(NativePrearmChecksRequested())
 
+    def _emit_normal_arm_request(self) -> None:
+        # Lock synchronously; the worker bridge also rejects an already-active operation.
+        self._arm_button.setEnabled(False)
+        self.intent_emitted.emit(NormalArmRequested())
+        if self._arm_worker is not None:
+            self._arm_worker.submit()
+
+    def bind_normal_arm_operation(
+        self,
+        operation: Callable[[], NormalArmSnapshot],
+    ) -> NormalArmWorkerHandoff:
+        """Bind blocking application work to the explicit background handoff."""
+
+        if self._arm_worker is not None:
+            raise RuntimeError("a normal Arm operation is already bound")
+        worker = NormalArmWorkerHandoff(operation)
+        worker.snapshot_ready.connect(self._render_worker_arm_snapshot)
+        worker.operation_failed.connect(self._render_worker_failure)
+        self._arm_worker = worker
+        return worker
+
+    def _render_worker_arm_snapshot(self, snapshot: object) -> None:
+        if isinstance(snapshot, NormalArmSnapshot):
+            self.render_arm(snapshot)
+
+    def _render_worker_failure(self, detail: str) -> None:
+        self._arm_status.setText("Worker failed — vehicle state uncertain")
+        self._arm_detail.setText(detail)
+        self._arm_button.setEnabled(False)
+
     @property
     def readiness_snapshot(self) -> PrearmReadinessSnapshot:
         return self._readiness
+
+    @property
+    def arm_snapshot(self) -> NormalArmSnapshot:
+        return self._arm
+
+    def render_arm(self, arm: NormalArmSnapshot) -> None:
+        self._arm = arm
+        self._arm_status.setText(_arm_state_text(arm.state))
+        repeated = (
+            " Repeated activation was ignored while the original request remained active."
+            if arm.repeated_request_ignored
+            else ""
+        )
+        self._arm_detail.setText(f"{arm.detail}{repeated}")
+        self._arm_button.setEnabled(
+            arm.request_available
+            and arm.state is not NormalArmState.PENDING
+            and arm.state is not NormalArmState.ARMED
+        )
+        if arm.native_messages:
+            current = (
+                ()
+                if self._readiness.telemetry is None
+                else self._readiness.telemetry.native_messages
+            )
+            combined = (*current, *arm.native_messages)
+            self._messages.render_messages((message.severity, message.text) for message in combined)
+            self._messages.scrollToBottom()
 
     def render_readiness(self, readiness: PrearmReadinessSnapshot, *, now_s: float) -> None:
         self._readiness = readiness
@@ -317,3 +420,31 @@ def _assessment_text(assessment: NativePrearmAssessment) -> str:
             "Native check observation: STATUSTEXT and telemetry disagree — blocked."
         ),
     }[assessment]
+
+
+def _arm_state_text(state: NormalArmState) -> str:
+    return {
+        NormalArmState.IDLE: "Ready for one normal Arm request",
+        NormalArmState.PENDING: "Normal Arm pending — controls locked",
+        NormalArmState.ARMED: "Armed — acknowledgment and telemetry confirmed",
+        NormalArmState.REJECTED: "Normal Arm rejected by ArduCopter",
+        NormalArmState.UNSUPPORTED: "Normal Arm unsupported",
+        NormalArmState.TIMED_OUT: "Acknowledgment timed out — state uncertain",
+        NormalArmState.CANCELLED: "Request cancelled — state uncertain",
+        NormalArmState.WRONG_TARGET: "Wrong-target acknowledgment — blocked",
+        NormalArmState.WRONG_ACK: "Unrelated or misaddressed acknowledgment — blocked",
+        NormalArmState.STALE_LINK: "SiK telemetry stale — blocked",
+        NormalArmState.LINK_LOST: "SiK link lost — state uncertain",
+        NormalArmState.ACKNOWLEDGED_NO_ARMED_TELEMETRY: (
+            "Acknowledged, but armed telemetry is absent — state uncertain"
+        ),
+        NormalArmState.TELEMETRY_DISAGREEMENT: (
+            "Acknowledgment and telemetry disagree — state uncertain"
+        ),
+        NormalArmState.BLOCKED_WRONG_LINK: "SiK link required",
+        NormalArmState.BLOCKED_ARMED: "Already armed before request — no command sent",
+        NormalArmState.BLOCKED_MISSION: "Exact current mission verification required",
+        NormalArmState.BLOCKED_READINESS: "Current reviewed native readiness is required",
+        NormalArmState.BLOCKED_IDENTITY: "Same-target identity unresolved",
+        NormalArmState.BLOCKED_BUSY: "Command channel busy",
+    }[state]

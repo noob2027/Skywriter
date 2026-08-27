@@ -82,6 +82,11 @@ operator readiness review documented in [`docs/native-prearm.md`](docs/native-pr
 It exposes only command 401, preserves native ACK/`STATUSTEXT` meaning, and never treats
 an accepted request or silence as proof that ArduCopter will arm.
 
+The second serial compartment is the normal-only Arm path documented in
+[`docs/normal-arm.md`](docs/normal-arm.md). It is bound to the current reviewed readiness
+fingerprint, exposes no caller-supplied command parameters, and requires fresh
+selected-target armed telemetry after the exact acknowledgment before showing Armed.
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.
@@ -140,6 +145,7 @@ The documents in this starter package are the implementation source of truth. Be
 - [`docs/architecture.md`](docs/architecture.md): domain model, state machines, interfaces, protocol boundaries, and test seams
 - [`docs/connected-integration.md`](docs/connected-integration.md): USB/SiK composition, invalidation, and stock-SITL evidence
 - [`docs/native-prearm.md`](docs/native-prearm.md): exact native pre-arm request, review gate, and SITL evidence boundary
+- [`docs/normal-arm.md`](docs/normal-arm.md): gated normal Arm, exact ACK/telemetry proof, and stock-SITL evidence
 - [`docs/development-plan.md`](docs/development-plan.md): phases, branch/PR workflow, gates, and validation ladder
 - [`AGENTS.md`](AGENTS.md): binding repository rules for Codex and human contributors
 - [`codex-tasks/README.md`](codex-tasks/README.md): launch order and bounded handoffs

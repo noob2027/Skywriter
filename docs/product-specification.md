@@ -126,6 +126,11 @@ Show connection state, vehicle identity, armed state, flight mode, position, alt
 
 Every vehicle command has explicit prerequisites, pending state, bounded timeout, matching `COMMAND_ACK`, accepted/rejected presentation, and an audit log entry. A transmitted command is not a successful command.
 
+For normal Arm specifically, an accepted acknowledgment is still not success. The UI
+may present **Armed** only after a later fresh armed heartbeat from the same selected
+target. Missing or conflicting telemetry is an explicit uncertain state, never an
+optimistic transition.
+
 ## 5. Structural validation versus operational policy
 
 Prototype validation prevents malformed data: missing fields, non-numeric values, invalid coordinates, non-positive speed/time/radius, illegal ordering, unknown actions, or missing Land. It intentionally does not impose maximum altitude, maximum range, maximum speed, minimum radius, maximum hold time, a geofence, terrain clearance, or aircraft-specific capability rules.

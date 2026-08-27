@@ -20,6 +20,7 @@ MAV_MODE_FLAG_SAFETY_ARMED = 128
 MAV_MISSION_ACCEPTED = 0
 MAV_MISSION_OPERATION_CANCELLED = 15
 MAV_MISSION_TYPE_MISSION = 0
+MAV_CMD_COMPONENT_ARM_DISARM = 400
 MAV_CMD_RUN_PREARM_CHECKS = 401
 
 
@@ -451,6 +452,88 @@ class PymavlinkPrearmLink:
                 MAV_CMD_RUN_PREARM_CHECKS,
                 0,
                 0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            )
+        except (EOFError, OSError) as error:
+            self._connected = False
+            raise ConnectionError("MAVLink connection closed while sending") from error
+
+    def _require_connected(self) -> None:
+        if not self._connected:
+            raise ConnectionError("MAVLink connection is closed")
+
+
+class PymavlinkNormalArmLink:
+    """pymavlink-backed link exposing only the Task 101 normal Arm action."""
+
+    def __init__(
+        self,
+        connection: Any,
+        descriptor: TransportDescriptor,
+        *,
+        local_address: MavlinkAddress = DEFAULT_GCS_ADDRESS,
+    ) -> None:
+        if descriptor.kind is not TransportKind.SIK:
+            raise ValueError("normal Arm requires an explicitly classified SiK link")
+        self._connection = connection
+        self.descriptor = descriptor
+        self.local_address = local_address
+        self._connected = True
+
+    def is_connected(self) -> bool:
+        return self._connected
+
+    def close(self) -> None:
+        if not self._connected:
+            return
+        self._connected = False
+        close = getattr(self._connection, "close", None)
+        if callable(close):
+            close()
+
+    def receive(self, timeout_s: float) -> IncomingMessage | None:
+        self._require_connected()
+        deadline_s = time.monotonic() + max(0.0, timeout_s)
+        first_attempt = True
+        while first_attempt or time.monotonic() < deadline_s:
+            first_attempt = False
+            try:
+                raw = self._connection.recv_match(
+                    blocking=True,
+                    timeout=max(0.0, deadline_s - time.monotonic()),
+                )
+            except (EOFError, OSError) as error:
+                self._connected = False
+                raise ConnectionError("MAVLink connection closed while receiving") from error
+            if raw is None:
+                return None
+            if str(raw.get_type()) == "BAD_DATA":
+                continue
+            fields = raw.to_dict()
+            fields.pop("mavpackettype", None)
+            return IncomingMessage(
+                name=str(raw.get_type()),
+                source=MavlinkAddress(raw.get_srcSystem(), raw.get_srcComponent()),
+                fields=fields,
+            )
+        return None
+
+    def send_normal_arm(self, target: MavlinkAddress) -> None:
+        """Send exact command 400 with the normal selector and reserved values."""
+
+        self._require_connected()
+        try:
+            self._connection.mav.command_long_send(
+                target.system_id,
+                target.component_id,
+                MAV_CMD_COMPONENT_ARM_DISARM,
+                0,
+                1,
                 0,
                 0,
                 0,

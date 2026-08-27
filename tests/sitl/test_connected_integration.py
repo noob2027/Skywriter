@@ -1,9 +1,9 @@
-"""Genuine Task 009/100 production-boundary evidence against pinned stock SITL.
+"""Genuine Task 009/100/101 production-boundary evidence against pinned stock SITL.
 
-The two vehicle-control stimuli in this file are acceptance-test scaffolding only:
-normal arm (force value zero) and native mission start are required to make stock
-ArduCopter enter AUTO and execute an uploaded mission.  They are intentionally absent
-from ``src/`` and do not create a reusable command boundary or UI control.
+Normal Arm uses the production Task 101 boundary. Native mission start remains
+acceptance-test scaffolding required to make stock ArduCopter enter AUTO and execute the
+uploaded mission. It is intentionally absent from ``src/`` and creates no reusable
+production command boundary or UI control.
 """
 
 from __future__ import annotations
@@ -26,6 +26,12 @@ from scripts.sitl.pinned import (
     SitlTargetIdentity,
     ekf_position_health_from_flags,
     prearm_health_from_bitmaps,
+)
+from skywriter.application.arm import (
+    NormalArmCommandResult,
+    NormalArmService,
+    NormalArmSnapshot,
+    NormalArmState,
 )
 from skywriter.application.connected import (
     ConnectedMissionService,
@@ -55,6 +61,7 @@ from skywriter.domain.mission import (
     MissionSettings,
     ProceedAction,
 )
+from skywriter.infrastructure.mavlink.arm import NativeNormalArmGateway, NormalArmLink
 from skywriter.infrastructure.mavlink.connected import ConnectedMavlinkPort
 from skywriter.infrastructure.mavlink.connection import (
     IncomingMessage,
@@ -62,6 +69,7 @@ from skywriter.infrastructure.mavlink.connection import (
     MonotonicClock,
     NeverCancelled,
     PymavlinkMissionLink,
+    PymavlinkNormalArmLink,
     PymavlinkPrearmLink,
     TransportDescriptor,
     TransportKind,
@@ -260,6 +268,53 @@ class _EvidencePrearmLink(PrearmCommandLink):
         self._delegate.send_prearm_checks(target)
 
 
+class _EvidenceNormalArmLink(NormalArmLink):
+    """Trace wrapper around the exact production normal-arm link."""
+
+    def __init__(self, delegate: PymavlinkNormalArmLink, trace: list[dict[str, object]]) -> None:
+        self._delegate = delegate
+        self._trace = trace
+        self.descriptor = delegate.descriptor
+        self.local_address = delegate.local_address
+
+    def is_connected(self) -> bool:
+        return self._delegate.is_connected()
+
+    def receive(self, timeout_s: float) -> IncomingMessage | None:
+        message = self._delegate.receive(timeout_s)
+        if message is not None and message.name in {
+            "COMMAND_ACK",
+            "HEARTBEAT",
+            "STATUSTEXT",
+        }:
+            self._trace.append(
+                {
+                    "elapsed_monotonic_s": time.monotonic(),
+                    "message_type": message.name,
+                    "source_system": message.source.system_id,
+                    "source_component": message.source.component_id,
+                    "fields": _json_safe(message.fields),
+                }
+            )
+        return message
+
+    def send_normal_arm(self, target: MavlinkAddress) -> None:
+        self._trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "COMMAND_LONG_NORMAL_ARM",
+                "fields": {
+                    "target_system": target.system_id,
+                    "target_component": target.component_id,
+                    "command": 400,
+                    "confirmation": 0,
+                    "params": [1, 0, 0, 0, 0, 0, 0],
+                },
+            }
+        )
+        self._delegate.send_normal_arm(target)
+
+
 def _wait_prearm_ready(
     connection: Any,
     trace: list[dict[str, object]],
@@ -379,57 +434,6 @@ def _wait_ekf_position_ready(
         "stock SITL did not report an absolute non-constant EKF position before the "
         f"bounded deadline; last={last}; native trace=" + json.dumps(trace[-30:], sort_keys=True)
     )
-
-
-def _normal_arm(
-    connection: Any,
-    trace: list[dict[str, object]],
-    prearm_health: PrearmHealth,
-    position_health: EkfPositionHealth,
-) -> None:
-    from pymavlink import mavutil
-
-    # Do not emit even a normal arm request until stock ArduPilot reports that
-    # its enabled pre-arm checks are healthy on the same live connection.
-    assert prearm_health.ready
-    assert position_health.ready
-    arm_command = int(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
-    deadline_s = time.monotonic() + 60.0
-    armed = False
-    while time.monotonic() < deadline_s and not armed:
-        # param2=0 is the normal path.  The force-arm magic value is forbidden.
-        connection.mav.command_long_send(
-            TARGET.system_id,
-            TARGET.component_id,
-            arm_command,
-            0,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        )
-        retry_deadline_s = min(deadline_s, time.monotonic() + 5.0)
-        while time.monotonic() < retry_deadline_s:
-            message = connection.recv_match(
-                blocking=True,
-                timeout=min(1.0, max(0.0, retry_deadline_s - time.monotonic())),
-            )
-            if message is None:
-                continue
-            _record_execution_message(trace, message)
-            if message.get_type() != "HEARTBEAT" or message.get_srcSystem() != TARGET.system_id:
-                continue
-            armed = bool(int(message.base_mode) & int(mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED))
-            if armed:
-                break
-    if not armed:
-        raise AssertionError(
-            "stock SITL did not accept a normal, non-forced arm request; native trace="
-            + json.dumps(trace[-30:], sort_keys=True)
-        )
 
 
 def _native_mission_start(connection: Any, trace: list[dict[str, object]]) -> None:
@@ -693,7 +697,10 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     execution_trace_path = evidence_root / "connected-execution-trace.json"
     prearm_service = PrearmReadinessService()
     positive_prearm: PrearmReadinessSnapshot | None = None
+    positive_arm: NormalArmSnapshot | None = None
+    landed_auto_arm_rejection: NormalArmCommandResult | None = None
     armed_rejection: PrearmCommandResult | None = None
+    arm_gateway: NativeNormalArmGateway | None = None
     try:
         readiness_deadline_s = time.monotonic() + 30.0
         position_health = _wait_ekf_position_ready(
@@ -732,12 +739,30 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         prearm_service.acknowledge_review(True, service.snapshot, now_s=clock.now())
         assert prearm_service.application_gate_ready_at(service.snapshot, now_s=clock.now())
 
-        _normal_arm(
-            sik_connection,
+        # The production service owns the Task 100 fingerprint gate; the production
+        # gateway owns exact ACK correlation and the later armed-heartbeat proof.
+        assert prearm_health.ready
+        assert position_health.ready
+        arm_link = _EvidenceNormalArmLink(
+            PymavlinkNormalArmLink(
+                sik_connection,
+                TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+            ),
             execution_trace,
-            prearm_health,
-            position_health,
         )
+        arm_gateway = NativeNormalArmGateway(arm_link, clock=clock)
+        arm_service = NormalArmService()
+        positive_arm = arm_service.request_normal_arm(
+            arm_gateway,
+            service.snapshot,
+            prearm_service,
+            now_s=clock.now(),
+            command_channel_idle=True,
+            cancellation=cancellation,
+        )
+        assert positive_arm.state is NormalArmState.ARMED
+        assert positive_arm.ack_result == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+        assert positive_arm.armed_observed_at_s is not None
         # Pinned source returns TEMPORARILY_REJECTED only while armed.  The production
         # application gate above never sends in that state; this direct gateway call
         # is isolated evidence using Task 009's existing normal-arm scaffold.
@@ -811,8 +836,23 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             break
     assert landed_disarmed, "mixed mission did not reach Land and return to disarmed landed state"
 
+    # Stock Copter remains in AUTO after its native Land completion and auto-disarm.
+    # A direct normal-only gateway request is isolated negative evidence: the application
+    # review gate is no longer current here and therefore would never transmit it.
+    assert selected_target is not None
+    assert arm_gateway is not None
+    post_land_target = replace(selected_target, base_mode=0, observed_at_s=clock.now())
+    landed_auto_arm_rejection = arm_gateway.request_normal_arm(
+        post_land_target,
+        target_valid_for_s=3.0,
+        cancellation=cancellation,
+    )
+    assert landed_auto_arm_rejection.state is NormalArmState.REJECTED
+    assert landed_auto_arm_rejection.ack_result == int(mavutil.mavlink.MAV_RESULT_FAILED)
+    _write_execution_trace(execution_trace_path, execution_trace)
+
     evidence = {
-        "schema": "skywriter-task-100-connected-sitl-v1",
+        "schema": "skywriter-task-101-connected-sitl-v1",
         "status": "passed",
         "target": {
             "system_id": sitl_target_identity.system_id,
@@ -842,6 +882,20 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "landed_disarmed": landed_disarmed,
             "trace": execution_trace,
         },
+        "normal_arm": {
+            "positive_application_request": (
+                None if positive_arm is None else asdict(positive_arm)
+            ),
+            "landed_auto_native_rejection": (
+                None if landed_auto_arm_rejection is None else asdict(landed_auto_arm_rejection)
+            ),
+            "exact_command": 400,
+            "normal_parameters": [1, 0, 0, 0, 0, 0, 0],
+            "ack_is_armed_proof": False,
+            "selected_target_armed_telemetry_required": True,
+            "production_review_gate_bypassed": False,
+            "test_only_rejection_condition": "landed, auto-disarmed stock SITL remains in AUTO",
+        },
         "native_prearm": {
             "positive_application_review": (
                 None if positive_prearm is None else asdict(prearm_service.snapshot)
@@ -862,6 +916,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "force_arm": False,
             "real_hardware": False,
             "production_prearm_command_only": True,
+            "production_normal_arm_only": True,
             "prearm_bypass": False,
         },
     }
