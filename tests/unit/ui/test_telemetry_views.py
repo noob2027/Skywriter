@@ -135,12 +135,14 @@ def test_flight_renders_route_progress_and_fail_closed_freshness() -> None:
     assert view.map_layers_widget.layers.remaining_route == mission_route.points
 
 
-def test_telemetry_views_expose_no_control_surface() -> None:
+def test_flight_stays_read_only_and_preflight_exposes_only_native_check_request() -> None:
     create_application(["skywriter-telemetry-control-confinement-test"])
     preflight = PreflightTelemetryWidget()
     flight = FlightTelemetryWidget()
 
-    assert preflight.findChildren(QPushButton) == []
+    assert [button.objectName() for button in preflight.findChildren(QPushButton)] == [
+        "requestNativePrearmButton"
+    ]
     assert flight.findChildren(QPushButton) == []
     preflight_disclaimer = preflight.findChild(QLabel, "preflightTelemetryDisclaimer")
     flight_disclaimer = flight.findChild(QLabel, "flightTelemetryDisclaimer")

@@ -186,6 +186,19 @@ edit clears readiness; a fresh same-vehicle SiK full readback is required to res
 No state transition in this compartment arms, changes mode, starts flight, writes a
 parameter, or sends a generic command.
 
+Task 100 adds a separate `PrearmReadinessService` and `NativePrearmGateway`. The
+application service consumes the current immutable connected snapshot and owns the
+SiK/same-target/disarmed/exact-mission/freshness/idle gates. The gateway exposes only
+`request_prearm_checks()` and its link exposes only `send_prearm_checks()` for pinned
+command 401. Neither broadens the mission-only `ConnectedMavlinkPort` or the receive-only
+telemetry adapter.
+
+The result retains ACK classification and associated native text separately from the
+typed telemetry review. An accepted request never means armable. Explicit review can
+produce an application gate only with current healthy native sensor evidence, and any
+mission, target, link, or armed-state change invalidates it. Qt emits typed request and
+review intents; the blocking transaction remains worker-owned.
+
 Readiness is derived, never toggled directly by a widget. Example predicates:
 
 ```text
@@ -231,6 +244,12 @@ Commands are separate from the mission compiler. Each command service method has
 - request native Land Here Now at current location with deliberate UI confirmation.
 
 No generic `send_command(command_id, params)` API may be exposed to UI/application code.
+
+The first implemented method is the exact pinned `request_prearm_checks()` path. Stock
+4.6.3 returns temporarily rejected while armed; while disarmed it runs native checks and
+returns accepted even when a check reports failure. SKYWriter therefore correlates ACK,
+preserves `STATUSTEXT` and `SYS_STATUS` evidence, and requires deliberate review without
+claiming native arm readiness.
 
 ## 8. Map isolation
 

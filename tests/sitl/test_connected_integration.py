@@ -1,4 +1,4 @@
-"""Genuine Task 009 production-boundary evidence against pinned stock SITL.
+"""Genuine Task 009/100 production-boundary evidence against pinned stock SITL.
 
 The two vehicle-control stimuli in this file are acceptance-test scaffolding only:
 normal arm (force value zero) and native mission start are required to make stock
@@ -12,7 +12,7 @@ import json
 import os
 import time
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,13 @@ from scripts.sitl.pinned import (
 from skywriter.application.connected import (
     ConnectedMissionService,
     ConnectedVerificationState,
+)
+from skywriter.application.prearm import (
+    NativePrearmAssessment,
+    PrearmCommandResult,
+    PrearmReadinessService,
+    PrearmReadinessSnapshot,
+    PrearmRequestState,
 )
 from skywriter.compatibility.arducopter_4_6_3 import (
     NativeMissionItem,
@@ -50,13 +57,16 @@ from skywriter.domain.mission import (
 )
 from skywriter.infrastructure.mavlink.connected import ConnectedMavlinkPort
 from skywriter.infrastructure.mavlink.connection import (
+    IncomingMessage,
     MavlinkAddress,
     MonotonicClock,
     NeverCancelled,
     PymavlinkMissionLink,
+    PymavlinkPrearmLink,
     TransportDescriptor,
     TransportKind,
 )
+from skywriter.infrastructure.mavlink.prearm import NativePrearmGateway, PrearmCommandLink
 
 pytestmark = pytest.mark.sitl
 
@@ -162,6 +172,92 @@ def _request_execution_telemetry(connection: Any, trace: list[dict[str, object]]
             0,
             0,
         )
+
+
+def _request_prearm_review_observations(connection: Any, trace: list[dict[str, object]]) -> None:
+    """Ask for read-only observations; this remains SITL evidence scaffolding."""
+
+    from pymavlink import mavutil
+
+    for name, message_id in (
+        ("SYS_STATUS", int(mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS)),
+        ("GPS_RAW_INT", int(mavutil.mavlink.MAVLINK_MSG_ID_GPS_RAW_INT)),
+        ("HOME_POSITION", int(mavutil.mavlink.MAVLINK_MSG_ID_HOME_POSITION)),
+        ("EKF_STATUS_REPORT", int(mavutil.mavlink.MAVLINK_MSG_ID_EKF_STATUS_REPORT)),
+        ("BATTERY_STATUS", int(mavutil.mavlink.MAVLINK_MSG_ID_BATTERY_STATUS)),
+        ("EXTENDED_SYS_STATE", int(mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE)),
+    ):
+        trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": f"COMMAND_LONG_REQUEST_{name}",
+                "fields": {
+                    "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+                    "requested_message_id": message_id,
+                    "test_only_read_request": True,
+                },
+            }
+        )
+        connection.mav.command_long_send(
+            TARGET.system_id,
+            TARGET.component_id,
+            int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+            0,
+            float(message_id),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+
+
+class _EvidencePrearmLink(PrearmCommandLink):
+    """Trace wrapper around the exact production pre-arm link."""
+
+    def __init__(self, delegate: PymavlinkPrearmLink, trace: list[dict[str, object]]) -> None:
+        self._delegate = delegate
+        self._trace = trace
+        self.descriptor = delegate.descriptor
+        self.local_address = delegate.local_address
+
+    def is_connected(self) -> bool:
+        return self._delegate.is_connected()
+
+    def receive(self, timeout_s: float) -> IncomingMessage | None:
+        message = self._delegate.receive(timeout_s)
+        if message is not None and message.name in {
+            "COMMAND_ACK",
+            "HEARTBEAT",
+            "STATUSTEXT",
+        }:
+            self._trace.append(
+                {
+                    "elapsed_monotonic_s": time.monotonic(),
+                    "message_type": message.name,
+                    "source_system": message.source.system_id,
+                    "source_component": message.source.component_id,
+                    "fields": _json_safe(message.fields),
+                }
+            )
+        return message
+
+    def send_prearm_checks(self, target: MavlinkAddress) -> None:
+        self._trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "COMMAND_LONG_NATIVE_PREARM_REQUEST",
+                "fields": {
+                    "target_system": target.system_id,
+                    "target_component": target.component_id,
+                    "command": 401,
+                    "confirmation": 0,
+                    "params": [0, 0, 0, 0, 0, 0, 0],
+                },
+            }
+        )
+        self._delegate.send_prearm_checks(target)
 
 
 def _wait_prearm_ready(
@@ -285,7 +381,7 @@ def _wait_ekf_position_ready(
     )
 
 
-def _normal_arm_then_native_mission_start(
+def _normal_arm(
     connection: Any,
     trace: list[dict[str, object]],
     prearm_health: PrearmHealth,
@@ -335,9 +431,13 @@ def _normal_arm_then_native_mission_start(
             + json.dumps(trace[-30:], sort_keys=True)
         )
 
+
+def _native_mission_start(connection: Any, trace: list[dict[str, object]]) -> None:
+    from pymavlink import mavutil
+
     # Pinned Copter intentionally rejects normal arming in AUTO when AUTO_OPTIONS=0.
     # Its native mission-start handler enters AUTO and starts/resumes the mission after
-    # this normal arm, so the acceptance test follows that exact stock sequence.
+    # the test-only normal arm, so the acceptance test follows that exact stock sequence.
     mission_start_command = int(mavutil.mavlink.MAV_CMD_MISSION_START)
     trace.append(
         {
@@ -591,6 +691,9 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
 
     execution_trace: list[dict[str, object]] = []
     execution_trace_path = evidence_root / "connected-execution-trace.json"
+    prearm_service = PrearmReadinessService()
+    positive_prearm: PrearmReadinessSnapshot | None = None
+    armed_rejection: PrearmCommandResult | None = None
     try:
         readiness_deadline_s = time.monotonic() + 30.0
         position_health = _wait_ekf_position_ready(
@@ -603,12 +706,50 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             execution_trace,
             timeout_s=max(0.0, readiness_deadline_s - time.monotonic()),
         )
-        _normal_arm_then_native_mission_start(
+        _request_prearm_review_observations(sik_connection, execution_trace)
+        service.refresh_telemetry(sik, duration_s=3.0, cancellation=cancellation)
+        assert service.snapshot.telemetry is not None
+        assert service.snapshot.telemetry.sensors.value is not None
+        selected_target = service.snapshot.selected_target
+        assert selected_target is not None
+        prearm_link = _EvidencePrearmLink(
+            PymavlinkPrearmLink(
+                sik_connection,
+                TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+            ),
+            execution_trace,
+        )
+        prearm_gateway = NativePrearmGateway(prearm_link, clock=clock)
+        prearm_service.request_prearm_checks(
+            prearm_gateway,
+            service.snapshot,
+            now_s=clock.now(),
+            cancellation=cancellation,
+        )
+        positive_prearm = prearm_service.snapshot
+        assert positive_prearm.request_state is PrearmRequestState.ACCEPTED
+        assert positive_prearm.native_assessment is NativePrearmAssessment.HEALTHY
+        prearm_service.acknowledge_review(True, service.snapshot, now_s=clock.now())
+        assert prearm_service.application_gate_ready_at(service.snapshot, now_s=clock.now())
+
+        _normal_arm(
             sik_connection,
             execution_trace,
             prearm_health,
             position_health,
         )
+        # Pinned source returns TEMPORARILY_REJECTED only while armed.  The production
+        # application gate above never sends in that state; this direct gateway call
+        # is isolated evidence using Task 009's existing normal-arm scaffold.
+        armed_target = replace(selected_target, base_mode=128, observed_at_s=clock.now())
+        armed_rejection = prearm_gateway.request_prearm_checks(
+            armed_target,
+            target_valid_for_s=3.0,
+            cancellation=cancellation,
+        )
+        assert armed_rejection.state is PrearmRequestState.REJECTED
+        assert armed_rejection.ack_result == int(mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED)
+        _native_mission_start(sik_connection, execution_trace)
     finally:
         # Preserve native pre-arm/arm evidence even when the test fails closed.
         _write_execution_trace(execution_trace_path, execution_trace)
@@ -671,7 +812,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     assert landed_disarmed, "mixed mission did not reach Land and return to disarmed landed state"
 
     evidence = {
-        "schema": "skywriter-task-009-connected-sitl-v1",
+        "schema": "skywriter-task-100-connected-sitl-v1",
         "status": "passed",
         "target": {
             "system_id": sitl_target_identity.system_id,
@@ -701,12 +842,27 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "landed_disarmed": landed_disarmed,
             "trace": execution_trace,
         },
+        "native_prearm": {
+            "positive_application_review": (
+                None if positive_prearm is None else asdict(prearm_service.snapshot)
+            ),
+            "armed_native_rejection": (
+                None if armed_rejection is None else asdict(armed_rejection)
+            ),
+            "exact_command": 401,
+            "reserved_params": [0, 0, 0, 0, 0, 0, 0],
+            "accepted_is_arm_approval": False,
+            "production_armed_send_blocked": True,
+            "test_only_rejection_stimulus": "existing Task 009 normal non-forced arm scaffold",
+        },
         "safety": {
             "stock_sitl_only": True,
-            "production_command_surface_added": False,
+            "production_command_surface_added": True,
             "parameter_writes": 0,
             "force_arm": False,
             "real_hardware": False,
+            "production_prearm_command_only": True,
+            "prearm_bypass": False,
         },
     }
     (evidence_root / "connected-integration.json").write_text(

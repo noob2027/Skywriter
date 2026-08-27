@@ -126,6 +126,12 @@ SKYWRITER_SITL_BASE_PORT=26200 \
 python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
 ```
 
+After Task 100, that connected test also runs the positive production native-prearm
+request/review and the exact stock armed-rejection evidence. The workflow still launches
+two fresh processes and retains all raw ACK/`STATUSTEXT`, review, startup, teardown, and
+hash-ledger evidence in each connected directory. No reusable harness fixture gains an
+Arm or generic-command surface.
+
 Use a different explicit block for a concurrent run, or omit
 `SKYWRITER_SITL_BASE_PORT` to lease the first free managed block. A requested block
 already leased or occupied fails closed instead of falling back silently.

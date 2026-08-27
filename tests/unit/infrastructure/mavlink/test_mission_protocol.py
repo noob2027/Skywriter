@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -543,7 +544,21 @@ def test_acknowledged_upload_with_mismatched_readback_is_failure_with_digest() -
 
 def test_adapter_source_has_only_closed_mission_emission_paths() -> None:
     source_root = Path(__file__).parents[4] / "src" / "skywriter" / "infrastructure" / "mavlink"
-    source = "\n".join(path.read_text(encoding="utf-8") for path in source_root.glob("*.py"))
+    connection_source = (source_root / "connection.py").read_text(encoding="utf-8")
+    connection_tree = ast.parse(connection_source)
+    mission_link = next(
+        node
+        for node in connection_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "PymavlinkMissionLink"
+    )
+    mission_link_source = ast.get_source_segment(connection_source, mission_link)
+    assert mission_link_source is not None
+    source = "\n".join(
+        (
+            (source_root / "mission_protocol.py").read_text(encoding="utf-8"),
+            mission_link_source,
+        )
+    )
     forbidden = (
         "param_set_send",
         "command_long_send",
