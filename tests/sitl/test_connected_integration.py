@@ -1,9 +1,8 @@
-"""Genuine Task 009/100/101 production-boundary evidence against pinned stock SITL.
+"""Genuine Task 009–102 production-boundary evidence against pinned stock SITL.
 
-Normal Arm uses the production Task 101 boundary. Native mission start remains
-acceptance-test scaffolding required to make stock ArduCopter enter AUTO and execute the
-uploaded mission. It is intentionally absent from ``src/`` and creates no reusable
-production command boundary or UI control.
+Normal Arm and native AUTO mission start use their dedicated production compartments.
+Only the deliberately invalid start selector used to capture stock-native denial remains
+test-only; it creates no reusable application, UI, or production command surface.
 """
 
 from __future__ import annotations
@@ -32,6 +31,11 @@ from skywriter.application.arm import (
     NormalArmService,
     NormalArmSnapshot,
     NormalArmState,
+)
+from skywriter.application.auto_start import (
+    NativeAutoStartService,
+    NativeAutoStartSnapshot,
+    NativeAutoStartState,
 )
 from skywriter.application.connected import (
     ConnectedMissionService,
@@ -62,6 +66,10 @@ from skywriter.domain.mission import (
     ProceedAction,
 )
 from skywriter.infrastructure.mavlink.arm import NativeNormalArmGateway, NormalArmLink
+from skywriter.infrastructure.mavlink.auto_start import (
+    NativeAutoStartGateway,
+    NativeAutoStartLink,
+)
 from skywriter.infrastructure.mavlink.connected import ConnectedMavlinkPort
 from skywriter.infrastructure.mavlink.connection import (
     IncomingMessage,
@@ -69,6 +77,7 @@ from skywriter.infrastructure.mavlink.connection import (
     MonotonicClock,
     NeverCancelled,
     PymavlinkMissionLink,
+    PymavlinkNativeAutoStartLink,
     PymavlinkNormalArmLink,
     PymavlinkPrearmLink,
     TransportDescriptor,
@@ -315,6 +324,59 @@ class _EvidenceNormalArmLink(NormalArmLink):
         self._delegate.send_normal_arm(target)
 
 
+class _EvidenceAutoStartLink(NativeAutoStartLink):
+    """Trace wrapper around the fixed production native mission-start link."""
+
+    def __init__(
+        self,
+        delegate: PymavlinkNativeAutoStartLink,
+        trace: list[dict[str, object]],
+    ) -> None:
+        self._delegate = delegate
+        self._trace = trace
+        self.descriptor = delegate.descriptor
+        self.local_address = delegate.local_address
+
+    def is_connected(self) -> bool:
+        return self._delegate.is_connected()
+
+    def receive(self, timeout_s: float) -> IncomingMessage | None:
+        message = self._delegate.receive(timeout_s)
+        if message is not None and message.name in {
+            "COMMAND_ACK",
+            "HEARTBEAT",
+            "MISSION_CURRENT",
+            "MISSION_ITEM_REACHED",
+            "STATUSTEXT",
+        }:
+            self._trace.append(
+                {
+                    "elapsed_monotonic_s": time.monotonic(),
+                    "message_type": message.name,
+                    "source_system": message.source.system_id,
+                    "source_component": message.source.component_id,
+                    "fields": _json_safe(message.fields),
+                }
+            )
+        return message
+
+    def send_native_auto_start(self, target: MavlinkAddress) -> None:
+        self._trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "COMMAND_LONG_NATIVE_AUTO_START",
+                "fields": {
+                    "target_system": target.system_id,
+                    "target_component": target.component_id,
+                    "command": 300,
+                    "confirmation": 0,
+                    "params": [0, 0, 0, 0, 0, 0, 0],
+                },
+            }
+        )
+        self._delegate.send_native_auto_start(target)
+
+
 def _wait_prearm_ready(
     connection: Any,
     trace: list[dict[str, object]],
@@ -436,20 +498,22 @@ def _wait_ekf_position_ready(
     )
 
 
-def _native_mission_start(connection: Any, trace: list[dict[str, object]]) -> None:
+def _test_only_rejected_mission_start(
+    connection: Any,
+    trace: list[dict[str, object]],
+) -> int:
     from pymavlink import mavutil
 
-    # Pinned Copter intentionally rejects normal arming in AUTO when AUTO_OPTIONS=0.
-    # Its native mission-start handler enters AUTO and starts/resumes the mission after
-    # the test-only normal arm, so the acceptance test follows that exact stock sequence.
+    # The pinned handler rejects any nonzero first/last selector. Production cannot
+    # supply either selector; this direct invalid packet is negative evidence only.
     mission_start_command = int(mavutil.mavlink.MAV_CMD_MISSION_START)
     trace.append(
         {
             "elapsed_monotonic_s": time.monotonic(),
-            "message_type": "COMMAND_LONG_NATIVE_MISSION_START",
+            "message_type": "COMMAND_LONG_TEST_ONLY_INVALID_MISSION_START",
             "fields": {
                 "command": mission_start_command,
-                "first_item": 0,
+                "first_item": 1,
                 "last_item": 0,
             },
         }
@@ -459,7 +523,7 @@ def _native_mission_start(connection: Any, trace: list[dict[str, object]]) -> No
         TARGET.component_id,
         mission_start_command,
         0,
-        0,
+        1,
         0,
         0,
         0,
@@ -467,28 +531,18 @@ def _native_mission_start(connection: Any, trace: list[dict[str, object]]) -> No
         0,
         0,
     )
-    _wait_message(
+    acknowledgment = _wait_message(
         connection,
         lambda message: (
             message.get_type() == "COMMAND_ACK"
             and message.get_srcSystem() == TARGET.system_id
             and int(message.command) == mission_start_command
-            and int(message.result) == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+            and int(message.result) == int(mavutil.mavlink.MAV_RESULT_DENIED)
         ),
         timeout_s=15.0,
         trace=trace,
     )
-    _wait_message(
-        connection,
-        lambda message: (
-            message.get_type() == "HEARTBEAT"
-            and message.get_srcSystem() == TARGET.system_id
-            and int(message.custom_mode) == 3
-            and bool(int(message.base_mode) & int(mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED))
-        ),
-        timeout_s=15.0,
-        trace=trace,
-    )
+    return int(acknowledgment.result)
 
 
 def _record_execution_message(trace: list[dict[str, object]], message: Any) -> None:
@@ -698,9 +752,13 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     prearm_service = PrearmReadinessService()
     positive_prearm: PrearmReadinessSnapshot | None = None
     positive_arm: NormalArmSnapshot | None = None
+    positive_auto_start: NativeAutoStartSnapshot | None = None
     landed_auto_arm_rejection: NormalArmCommandResult | None = None
     armed_rejection: PrearmCommandResult | None = None
-    arm_gateway: NativeNormalArmGateway | None = None
+    native_auto_start_rejection: int | None = None
+    link_interrupted_at_s: float | None = None
+    link_reconnected_at_s: float | None = None
+    auto_start_state_after_link_loss: NativeAutoStartState | None = None
     try:
         readiness_deadline_s = time.monotonic() + 30.0
         position_health = _wait_ekf_position_ready(
@@ -774,24 +832,81 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         )
         assert armed_rejection.state is PrearmRequestState.REJECTED
         assert armed_rejection.ack_result == int(mavutil.mavlink.MAV_RESULT_TEMPORARILY_REJECTED)
-        _native_mission_start(sik_connection, execution_trace)
+
+        # Refresh the accepted connected snapshot after the arm gateway's later
+        # heartbeat proof, then run Task 102 through its production gate/gateway.
+        service.refresh_telemetry(sik, duration_s=2.0, cancellation=cancellation)
+        assert service.snapshot.selected_target is not None
+        assert service.snapshot.selected_target.armed
+        auto_start_link = _EvidenceAutoStartLink(
+            PymavlinkNativeAutoStartLink(
+                sik_connection,
+                TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+            ),
+            execution_trace,
+        )
+        auto_start_gateway = NativeAutoStartGateway(auto_start_link, clock=clock)
+        auto_start_service = NativeAutoStartService()
+        positive_auto_start = auto_start_service.request_native_auto_start(
+            auto_start_gateway,
+            service.snapshot,
+            positive_arm,
+            now_s=clock.now(),
+            command_channel_idle=True,
+            cancellation=cancellation,
+        )
+        assert positive_auto_start.state is NativeAutoStartState.RUNNING
+        assert positive_auto_start.ack_result == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+        assert positive_auto_start.auto_observed_at_s is not None
+        assert positive_auto_start.progress_observed_at_s is not None
+        assert positive_auto_start.progress_sequence is not None
+
+        # Explicitly sever the desktop command/telemetry session after Running.
+        # The app gate invalidates immediately; stock Copter remains the onboard
+        # flight authority and the test reconnects only to observe later progress.
+        service.disconnect()
+        auto_start_service.synchronize_context(
+            service.snapshot,
+            positive_arm,
+            now_s=clock.now(),
+            command_channel_idle=True,
+        )
+        auto_start_state_after_link_loss = auto_start_service.snapshot.state
+        assert auto_start_state_after_link_loss is NativeAutoStartState.LINK_LOST
+        link_interrupted_at_s = time.monotonic()
+        sik_link.close()
+        sik_connection = _connect(sitl_endpoint)
+        sik_link = PymavlinkMissionLink(
+            sik_connection,
+            TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+        )
+        request.addfinalizer(sik_link.close)
+        sik = ConnectedMavlinkPort(sik_link, clock=clock)
+        link_reconnected_at_s = time.monotonic()
     finally:
-        # Preserve native pre-arm/arm evidence even when the test fails closed.
+        # Preserve native pre-arm/arm/AUTO evidence even when the test fails closed.
         _write_execution_trace(execution_trace_path, execution_trace)
     final_sequence = len(expected.items) - 1
     assert expected.items[final_sequence].command == int(mavutil.mavlink.MAV_CMD_NAV_LAND)
     sequence_before_land = final_sequence - 1
-    reached: set[int] = set()
+    assert positive_auto_start is not None
+    assert positive_auto_start.progress_sequence is not None
+    start_progress_sequence = positive_auto_start.progress_sequence
+    reached: set[int] = {start_progress_sequence}
     execution_deadline_s = time.monotonic() + 120.0
     landed_disarmed = False
+    progress_after_link_interruption = False
     max_relative_altitude_m = 0.0
     while time.monotonic() < execution_deadline_s:
         # Direct stock-binary sessions do not stream these states by default.
         # Read-only requests let the accepted telemetry adapter prove flight and landing.
         _request_execution_telemetry(sik_connection, execution_trace)
-        service.refresh_telemetry(sik, duration_s=3.0, cancellation=cancellation)
-        telemetry = service.snapshot.telemetry
-        assert telemetry is not None
+        telemetry = sik.collect_telemetry(
+            selected_target,
+            duration_s=3.0,
+            cancellation=cancellation,
+            require_home=False,
+        )
         progress = telemetry.mission.value
         heartbeat = telemetry.heartbeat.value
         position = telemetry.position.value
@@ -803,6 +918,9 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
                 reached.add(progress.current_sequence)
             if progress.last_reached_sequence is not None:
                 reached.add(progress.last_reached_sequence)
+            progress_after_link_interruption = progress_after_link_interruption or any(
+                sequence > start_progress_sequence for sequence in reached
+            )
         execution_trace.append(
             {
                 "elapsed_monotonic_s": time.monotonic(),
@@ -835,12 +953,25 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         if landed_disarmed:
             break
     assert landed_disarmed, "mixed mission did not reach Land and return to disarmed landed state"
+    assert progress_after_link_interruption, (
+        "stock Copter did not show later native mission progress after the "
+        "desktop link interruption"
+    )
 
     # Stock Copter remains in AUTO after its native Land completion and auto-disarm.
     # A direct normal-only gateway request is isolated negative evidence: the application
     # review gate is no longer current here and therefore would never transmit it.
     assert selected_target is not None
-    assert arm_gateway is not None
+    arm_gateway = NativeNormalArmGateway(
+        _EvidenceNormalArmLink(
+            PymavlinkNormalArmLink(
+                sik_connection,
+                TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+            ),
+            execution_trace,
+        ),
+        clock=clock,
+    )
     post_land_target = replace(selected_target, base_mode=0, observed_at_s=clock.now())
     landed_auto_arm_rejection = arm_gateway.request_normal_arm(
         post_land_target,
@@ -849,10 +980,15 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     )
     assert landed_auto_arm_rejection.state is NormalArmState.REJECTED
     assert landed_auto_arm_rejection.ack_result == int(mavutil.mavlink.MAV_RESULT_FAILED)
+    native_auto_start_rejection = _test_only_rejected_mission_start(
+        sik_connection,
+        execution_trace,
+    )
+    assert native_auto_start_rejection == int(mavutil.mavlink.MAV_RESULT_DENIED)
     _write_execution_trace(execution_trace_path, execution_trace)
 
     evidence = {
-        "schema": "skywriter-task-101-connected-sitl-v1",
+        "schema": "skywriter-task-102-connected-sitl-v1",
         "status": "passed",
         "target": {
             "system_id": sitl_target_identity.system_id,
@@ -871,16 +1007,47 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         "reference_verification": verification_to_document(reference),
         "execution": {
             "normal_arm_force_value": 0,
-            "stimulus_order": ["normal non-forced arm", "native mission start into AUTO"],
+            "stimulus_order": [
+                "normal non-forced arm",
+                "production native AUTO mission start",
+                "desktop link interruption",
+                "observation-only reconnect",
+            ],
             "prearm_health": asdict(prearm_health),
             "ekf_position_health": asdict(position_health),
-            "auto_stimulus_location": "tests/sitl/test_connected_integration.py only",
+            "auto_start_boundary": "production Task 102 service/gateway/link",
             "final_land_sequence": final_sequence,
             "last_required_reached_sequence": sequence_before_land,
             "observed_sequences": sorted(reached),
             "max_relative_altitude_m": max_relative_altitude_m,
             "landed_disarmed": landed_disarmed,
+            "link_interrupted_at_s": link_interrupted_at_s,
+            "link_reconnected_at_s": link_reconnected_at_s,
+            "application_state_after_link_loss": (
+                None
+                if auto_start_state_after_link_loss is None
+                else auto_start_state_after_link_loss.value
+            ),
+            "progress_sequence_confirming_running": start_progress_sequence,
+            "later_progress_after_link_interruption": progress_after_link_interruption,
             "trace": execution_trace,
+        },
+        "native_auto_start": {
+            "positive_application_request": (
+                None if positive_auto_start is None else asdict(positive_auto_start)
+            ),
+            "test_only_invalid_selector_ack": native_auto_start_rejection,
+            "exact_command": 300,
+            "production_parameters": [0, 0, 0, 0, 0, 0, 0],
+            "ack_is_running_proof": False,
+            "selected_target_armed_auto_telemetry_required": True,
+            "native_mission_progress_required": True,
+            "first_last_selector_exposed_to_production": False,
+            "test_only_rejection_parameters": [1, 0, 0, 0, 0, 0, 0],
+            "test_only_rejection_location": "tests/sitl/test_connected_integration.py only",
+            "desktop_link_interruption_proved_native_execution": (
+                progress_after_link_interruption and landed_disarmed
+            ),
         },
         "normal_arm": {
             "positive_application_request": (
@@ -917,6 +1084,9 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "real_hardware": False,
             "production_prearm_command_only": True,
             "production_normal_arm_only": True,
+            "production_native_auto_start_only": True,
+            "production_generic_mode_or_command_api": False,
+            "guided_setpoint_streaming": False,
             "prearm_bypass": False,
         },
     }
