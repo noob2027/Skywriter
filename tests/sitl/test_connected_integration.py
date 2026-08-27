@@ -39,6 +39,7 @@ from skywriter.application.auto_start import (
 )
 from skywriter.application.connected import (
     ConnectedMissionService,
+    ConnectedTarget,
     ConnectedVerificationState,
 )
 from skywriter.application.prearm import (
@@ -758,6 +759,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     native_auto_start_rejection: int | None = None
     link_interrupted_at_s: float | None = None
     link_reconnected_at_s: float | None = None
+    observation_target: ConnectedTarget | None = None
     auto_start_state_after_link_loss: NativeAutoStartState | None = None
     try:
         readiness_deadline_s = time.monotonic() + 30.0
@@ -882,7 +884,32 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         )
         request.addfinalizer(sik_link.close)
         sik = ConnectedMavlinkPort(sik_link, clock=clock)
+        reconnected_targets = sik.discover(duration_s=2.5, cancellation=cancellation)
+        observation_target = next(
+            (
+                candidate
+                for candidate in reconnected_targets
+                if candidate.vehicle == selected_target.vehicle
+                and candidate.system_id == selected_target.system_id
+                and candidate.component_id == selected_target.component_id
+            ),
+            None,
+        )
+        assert observation_target is not None, (
+            "the selected target was not rediscovered after desktop link interruption"
+        )
         link_reconnected_at_s = time.monotonic()
+        execution_trace.append(
+            {
+                "elapsed_monotonic_s": link_reconnected_at_s,
+                "message_type": "OBSERVATION_LINK_TARGET_REDISCOVERED",
+                "fields": {
+                    "system_id": observation_target.system_id,
+                    "component_id": observation_target.component_id,
+                    "vehicle_identity": observation_target.vehicle.value,
+                },
+            }
+        )
     finally:
         # Preserve native pre-arm/arm/AUTO evidence even when the test fails closed.
         _write_execution_trace(execution_trace_path, execution_trace)
@@ -891,6 +918,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     sequence_before_land = final_sequence - 1
     assert positive_auto_start is not None
     assert positive_auto_start.progress_sequence is not None
+    assert observation_target is not None
     start_progress_sequence = positive_auto_start.progress_sequence
     reached: set[int] = {start_progress_sequence}
     execution_deadline_s = time.monotonic() + 120.0
@@ -902,7 +930,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         # Read-only requests let the accepted telemetry adapter prove flight and landing.
         _request_execution_telemetry(sik_connection, execution_trace)
         telemetry = sik.collect_telemetry(
-            selected_target,
+            observation_target,
             duration_s=3.0,
             cancellation=cancellation,
             require_home=False,
