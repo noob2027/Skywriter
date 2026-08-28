@@ -87,6 +87,11 @@ The second serial compartment is the normal-only Arm path documented in
 fingerprint, exposes no caller-supplied command parameters, and requires fresh
 selected-target armed telemetry after the exact acknowledgment before showing Armed.
 
+The third serial compartment is the fixed native AUTO mission start documented in
+[`docs/auto-start.md`](docs/auto-start.md). It exposes no mode or sequence arguments and
+requires both a later armed AUTO heartbeat and in-bounds native mission progress after
+the exact command-300 acknowledgment before showing Running.
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.
@@ -146,6 +151,7 @@ The documents in this starter package are the implementation source of truth. Be
 - [`docs/connected-integration.md`](docs/connected-integration.md): USB/SiK composition, invalidation, and stock-SITL evidence
 - [`docs/native-prearm.md`](docs/native-prearm.md): exact native pre-arm request, review gate, and SITL evidence boundary
 - [`docs/normal-arm.md`](docs/normal-arm.md): gated normal Arm, exact ACK/telemetry proof, and stock-SITL evidence
+- [`docs/auto-start.md`](docs/auto-start.md): fixed native AUTO start, Running proof, and link-interruption evidence
 - [`docs/development-plan.md`](docs/development-plan.md): phases, branch/PR workflow, gates, and validation ladder
 - [`AGENTS.md`](AGENTS.md): binding repository rules for Codex and human contributors
 - [`codex-tasks/README.md`](codex-tasks/README.md): launch order and bounded handoffs

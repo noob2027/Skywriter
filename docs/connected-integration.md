@@ -64,14 +64,14 @@ of Takeoff–Proceed–Hold–Circle–Land, and a protocol-independent raw refe
 
 Stock Copter cannot execute a mission without normal arming and native mission start.
 Task 101 routes normal Arm through its production application/gateway boundary with the
-fixed normal value, exact ACK correlation, and later armed-heartbeat proof. Native
-mission start remains isolated in `tests/sitl/test_connected_integration.py`; it is not
-a reusable production or UI API. After readiness, the test normally arms in the initial
-mode and then sends `MAV_CMD_MISSION_START` with its supported first/last-item parameters
-both zero. The pinned 4.6.3 handler enters AUTO, sets the internal auto-armed state, and
-starts or resumes the uploaded mission. This order is required because stock
-`AUTO_OPTIONS=0` deliberately rejects a separate normal arm request made after AUTO is
-selected. Before either stimulus, the test requires a fresh same-connection
+fixed normal value, exact ACK correlation, and later armed-heartbeat proof. Task 102 now
+routes `MAV_CMD_MISSION_START` through its separate production boundary with fixed
+first/last-item parameters both zero. The pinned 4.6.3 handler enters AUTO, sets the
+internal auto-armed state, and starts or resumes the uploaded mission. Running additionally
+requires a later armed AUTO heartbeat and in-bounds native mission progress. This order
+is required because stock `AUTO_OPTIONS=0` deliberately rejects a separate normal arm
+request made after AUTO is selected. Before either stimulus, the test requires a fresh
+same-connection
 `SYS_STATUS` proving ArduPilot's enabled pre-arm bit is healthy. The harness launches
 with the exact official Copter defaults selected by the pinned source's `quad` mapping;
 their hash and effective `FRAME_CLASS=1` / `FRAME_TYPE=0` are retained in evidence.
@@ -123,6 +123,14 @@ while Copter remains in AUTO, the same closed gateway captures a native rejected
 Arm as isolated test evidence; the now-invalid production review gate would send
 nothing. See [`native-prearm.md`](native-prearm.md) and
 [`normal-arm.md`](normal-arm.md).
+
+Task 102 consumes the current Task 101 Armed fingerprint and replaces the former
+test-only positive mission-start stimulus with its fixed production boundary. Immediately
+after Running proof, the test closes the desktop link and confirms the application state
+fails closed. A new observation-only connection later sees mission progress advance and
+native Land complete, demonstrating onboard execution without fallback streaming. A
+nonzero first-item selector is retained only as test-only native-denial evidence because
+the production API cannot supply it. See [`auto-start.md`](auto-start.md).
 
 ## Platform and hardware limits
 

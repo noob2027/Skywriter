@@ -166,6 +166,11 @@ dedicated command-400 gateway, current-review application gate, and post-ACK arm
 telemetry confirmation. It adds no Task 102 AUTO start or later action. The pinned
 positive and native rejection paths run twice in fresh isolated stock-SITL processes.
 
+Task 102 implements only the third item through a dedicated fixed command-300 gateway.
+It accepts no mode or sequence arguments and requires post-ACK armed AUTO plus native
+mission-progress telemetry. Its twice-fresh SITL evidence also interrupts the desktop
+link after Running and observes later onboard mission progress without fallback control.
+
 ## 10. Validation ladder
 
 ### Gate A — automated offline

@@ -54,13 +54,14 @@ application gates. Task 008 does not own or enable any command gate.
 
 ## Presentation and composition seam
 
-The Preflight and Flight tabs display native observations and carry prominent read-only
-notices. They contain no buttons or vehicle controls. The flight map draws aircraft, home,
-current target, and completed/remaining route layers without a basemap. Route geometry is
+The Preflight and Flight tabs display native observations through this receive-only
+boundary. Later serial command tasks compose their own typed controls beside those views;
+they do not add a send method to telemetry. The flight map draws aircraft, home, current
+target, and completed/remaining route layers without a basemap. Route geometry is
 provided separately by the caller through a typed application contract; the telemetry
 adapter does not import or duplicate the logical compiler, compatibility envelope, or
-mission transport. Task 009 may compose these accepted pieces through their existing
-contracts.
+mission transport. Tasks 009–102 compose these accepted pieces only through their
+existing contracts.
 
 The stock fixture represents ArduCopter 4.6.3 observations, but SITL is neither a runtime
 dependency nor a prerequisite for offline SKYWriter. The intended Matek H7A3/H743 target,

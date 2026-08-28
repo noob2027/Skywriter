@@ -131,6 +131,11 @@ may present **Armed** only after a later fresh armed heartbeat from the same sel
 target. Missing or conflicting telemetry is an explicit uncertain state, never an
 optimistic transition.
 
+For Start Mission, an accepted acknowledgment is also not success. The UI may present
+**Running** only after later fresh selected-target telemetry confirms armed AUTO mode and
+native mission progress within the exact verified onboard mission. No fallback Guided
+setpoint stream is sent when confirmation or the command link is lost.
+
 ## 5. Structural validation versus operational policy
 
 Prototype validation prevents malformed data: missing fields, non-numeric values, invalid coordinates, non-positive speed/time/radius, illegal ordering, unknown actions, or missing Land. It intentionally does not impose maximum altitude, maximum range, maximum speed, minimum radius, maximum hold time, a geofence, terrain clearance, or aircraft-specific capability rules.

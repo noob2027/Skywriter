@@ -1,9 +1,23 @@
-"""Read-only flight telemetry presentation."""
+"""Flight telemetry plus the dedicated Task 102 native mission-start intent."""
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QGridLayout, QLabel, QSplitter, QVBoxLayout, QWidget
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TypeAlias
 
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QLabel,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
+
+from skywriter.application.auto_start import NativeAutoStartSnapshot, NativeAutoStartState
 from skywriter.application.telemetry import (
     TelemetryFreshness,
     TelemetryMapLayers,
@@ -11,6 +25,7 @@ from skywriter.application.telemetry import (
     TelemetrySnapshot,
     build_map_layers,
 )
+from skywriter.ui.auto_start_worker import NativeAutoStartWorkerHandoff
 from skywriter.ui.telemetry import (
     NativeMessagesList,
     TelemetryCard,
@@ -19,19 +34,32 @@ from skywriter.ui.telemetry import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class NativeAutoStartRequested:
+    pass
+
+
+FlightIntent: TypeAlias = NativeAutoStartRequested
+
+
 class FlightTelemetryWidget(QWidget):
-    """Display flight observations and route progress with no control surface."""
+    """Display telemetry and emit only the typed native mission-start intent."""
+
+    intent_emitted = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()
+        self._auto_start = NativeAutoStartSnapshot()
+        self._auto_start_worker: NativeAutoStartWorkerHandoff | None = None
+        self._telemetry_native_messages: tuple[tuple[int, str], ...] = ()
         self.setObjectName("flightTelemetryView")
         root = QVBoxLayout(self)
         heading = QLabel("Flight telemetry")
         heading.setObjectName("viewHeading")
         heading.setStyleSheet("font-size: 24px; font-weight: 700; color: #173f3d;")
         disclaimer = QLabel(
-            "READ-ONLY MONITORING — stale or missing telemetry closes future command gates. "
-            "No flight command is available in this workspace."
+            "TELEMETRY IS READ-ONLY. The only vehicle action here is the gated, acknowledged "
+            "native AUTO mission start below; SKYWriter never streams substitute navigation."
         )
         disclaimer.setObjectName("flightTelemetryDisclaimer")
         disclaimer.setWordWrap(True)
@@ -40,6 +68,38 @@ class FlightTelemetryWidget(QWidget):
         )
         root.addWidget(heading)
         root.addWidget(disclaimer)
+
+        start_panel = QFrame()
+        start_panel.setObjectName("nativeAutoStartPanel")
+        start_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        start_layout = QVBoxLayout(start_panel)
+        start_heading = QLabel("Native AUTO mission start")
+        start_heading.setStyleSheet("font-size: 16px; font-weight: 700;")
+        start_warning = QLabel(
+            "START MISSION CHANGES FLIGHT STATE. It is enabled only for the current armed "
+            "same-target vehicle and exact verified mission. An accepted acknowledgment is not "
+            "shown as Running without later armed AUTO and mission-progress telemetry."
+        )
+        start_warning.setObjectName("nativeAutoStartWarning")
+        start_warning.setWordWrap(True)
+        start_warning.setStyleSheet(
+            "padding: 9px; background: #ffe2d5; color: #762500; font-weight: 700;"
+        )
+        self._auto_start_status = QLabel()
+        self._auto_start_status.setObjectName("nativeAutoStartStatus")
+        self._auto_start_status.setWordWrap(True)
+        self._auto_start_detail = QLabel()
+        self._auto_start_detail.setObjectName("nativeAutoStartDetail")
+        self._auto_start_detail.setWordWrap(True)
+        self._auto_start_button = QPushButton("Start verified mission in AUTO")
+        self._auto_start_button.setObjectName("nativeAutoStartButton")
+        self._auto_start_button.clicked.connect(self._emit_auto_start_request)
+        start_layout.addWidget(start_heading)
+        start_layout.addWidget(start_warning)
+        start_layout.addWidget(self._auto_start_status)
+        start_layout.addWidget(self._auto_start_detail)
+        start_layout.addWidget(self._auto_start_button)
+        root.addWidget(start_panel)
 
         grid = QGridLayout()
         self._connection = TelemetryCard("Vehicle / link", "flightConnection")
@@ -75,7 +135,57 @@ class FlightTelemetryWidget(QWidget):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
         root.addWidget(splitter, 1)
+        self.render_auto_start(self._auto_start)
         self.render_snapshot(None, now_s=0.0)
+
+    def _emit_auto_start_request(self) -> None:
+        self._auto_start_button.setEnabled(False)
+        self.intent_emitted.emit(NativeAutoStartRequested())
+        if self._auto_start_worker is not None:
+            self._auto_start_worker.submit()
+
+    def bind_native_auto_start_operation(
+        self,
+        operation: Callable[[], NativeAutoStartSnapshot],
+    ) -> NativeAutoStartWorkerHandoff:
+        """Bind the blocking application operation to the background worker."""
+
+        if self._auto_start_worker is not None:
+            raise RuntimeError("a native AUTO-start operation is already bound")
+        worker = NativeAutoStartWorkerHandoff(operation)
+        worker.snapshot_ready.connect(self._render_worker_auto_start_snapshot)
+        worker.operation_failed.connect(self._render_worker_failure)
+        self._auto_start_worker = worker
+        return worker
+
+    def _render_worker_auto_start_snapshot(self, snapshot: object) -> None:
+        if isinstance(snapshot, NativeAutoStartSnapshot):
+            self.render_auto_start(snapshot)
+
+    def _render_worker_failure(self, detail: str) -> None:
+        self._auto_start_status.setText("Worker failed — onboard state uncertain")
+        self._auto_start_detail.setText(detail)
+        self._auto_start_button.setEnabled(False)
+
+    @property
+    def auto_start_snapshot(self) -> NativeAutoStartSnapshot:
+        return self._auto_start
+
+    def render_auto_start(self, snapshot: NativeAutoStartSnapshot) -> None:
+        self._auto_start = snapshot
+        self._auto_start_status.setText(_auto_start_state_text(snapshot.state))
+        repeated = (
+            " Repeated activation was ignored while the original request remained active."
+            if snapshot.repeated_request_ignored
+            else ""
+        )
+        self._auto_start_detail.setText(f"{snapshot.detail}{repeated}")
+        self._auto_start_button.setEnabled(
+            snapshot.request_available
+            and snapshot.state is not NativeAutoStartState.PENDING
+            and snapshot.state is not NativeAutoStartState.RUNNING
+        )
+        self._render_native_messages()
 
     @property
     def map_layers_widget(self) -> TelemetryMapLayersWidget:
@@ -100,7 +210,8 @@ class FlightTelemetryWidget(QWidget):
             ):
                 card.set_value("Unavailable", TelemetryFreshness.UNAVAILABLE)
             self._map.set_layers(build_map_layers_placeholder(route))
-            self._messages.render_messages(())
+            self._telemetry_native_messages = ()
+            self._render_native_messages()
             return
         heartbeat_freshness = snapshot.heartbeat.freshness(now_s)
         self._connection.set_value(
@@ -151,9 +262,17 @@ class FlightTelemetryWidget(QWidget):
             ),
         )
         self._map.set_layers(build_map_layers(snapshot, route, now_s=now_s))
-        self._messages.render_messages(
+        self._telemetry_native_messages = tuple(
             (message.severity, message.text) for message in snapshot.native_messages
         )
+        self._render_native_messages()
+        self._messages.scrollToBottom()
+
+    def _render_native_messages(self) -> None:
+        command_messages = tuple(
+            (message.severity, message.text) for message in self._auto_start.native_messages
+        )
+        self._messages.render_messages((*self._telemetry_native_messages, *command_messages))
         self._messages.scrollToBottom()
 
 
@@ -167,3 +286,37 @@ def _available(value: object | None) -> str:
 
 def _measurement(value: int | float | None, unit: str) -> str:
     return "unavailable" if value is None else f"{value:g} {unit}"
+
+
+def _auto_start_state_text(state: NativeAutoStartState) -> str:
+    return {
+        NativeAutoStartState.IDLE: "Ready for one native mission-start request",
+        NativeAutoStartState.PENDING: "Start Mission pending — controls locked",
+        NativeAutoStartState.RUNNING: "Running — ACK, armed AUTO, and progress confirmed",
+        NativeAutoStartState.REJECTED: "Mission start rejected by ArduCopter",
+        NativeAutoStartState.UNSUPPORTED: "Native mission start unsupported",
+        NativeAutoStartState.TIMED_OUT: "Acknowledgment timed out — state uncertain",
+        NativeAutoStartState.CANCELLED: "Request cancelled — state uncertain",
+        NativeAutoStartState.WRONG_TARGET: "Wrong-target acknowledgment — blocked",
+        NativeAutoStartState.WRONG_ACK: "Unrelated or misaddressed acknowledgment — blocked",
+        NativeAutoStartState.STALE_LINK: "SiK telemetry stale — state uncertain",
+        NativeAutoStartState.LINK_LOST: "SiK link lost — onboard behavior remains native",
+        NativeAutoStartState.ACKNOWLEDGED_NO_AUTO_TELEMETRY: (
+            "Acknowledged, but AUTO telemetry is absent — state uncertain"
+        ),
+        NativeAutoStartState.ACKNOWLEDGED_NO_MISSION_PROGRESS: (
+            "AUTO observed, but mission progress is absent — state uncertain"
+        ),
+        NativeAutoStartState.UNEXPECTED_MODE: "Vehicle is not in expected AUTO mode",
+        NativeAutoStartState.MISSION_MISMATCH: "Mission evidence or progress mismatched",
+        NativeAutoStartState.DISARMED: "Vehicle disarmed — Running is not claimed",
+        NativeAutoStartState.TELEMETRY_DISAGREEMENT: "Armed telemetry disagrees — blocked",
+        NativeAutoStartState.BLOCKED_WRONG_LINK: "SiK link required",
+        NativeAutoStartState.BLOCKED_DISARMED: "Telemetry-confirmed Armed state required",
+        NativeAutoStartState.BLOCKED_MISSION: "Exact current mission verification required",
+        NativeAutoStartState.BLOCKED_ARM: "Current Task 101 Armed evidence required",
+        NativeAutoStartState.BLOCKED_IDENTITY: "Same-target identity unresolved",
+        NativeAutoStartState.BLOCKED_BUSY: "Command channel busy",
+        NativeAutoStartState.BLOCKED_SEQUENCE: "Verified native start sequence is invalid",
+        NativeAutoStartState.BLOCKED_ALREADY_AUTO: "Vehicle is already in AUTO",
+    }[state]

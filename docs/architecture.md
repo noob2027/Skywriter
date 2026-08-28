@@ -211,6 +211,17 @@ fresh disarmed telemetry, wrong ACK/target, cancellation, and link loss remain d
 fail-closed or uncertain states. Qt hands the blocking application callable to a real
 thread-pool worker and receives immutable snapshots back on the UI thread.
 
+Task 102 adds a separate `NativeAutoStartService` and `NativeAutoStartGateway`. Its
+application gate consumes the current Task 101 Armed snapshot plus the unchanged exact
+mission/target evidence. The concrete link emits only command 300 with the pinned
+supported zero first/last selectors; callers cannot provide a mode, sequence, command,
+or parameter array.
+
+An accepted ACK opens a second bounded observation state. Running requires both a later
+selected-target armed AUTO heartbeat and later in-bounds native mission progress. Link
+loss invalidates the application state without sending substitute navigation, while the
+stock flight controller continues according to its configured onboard behavior.
+
 Readiness is derived, never toggled directly by a widget. Example predicates:
 
 ```text
@@ -266,6 +277,10 @@ claiming native arm readiness.
 The second implemented method is the exact normal-only `request_normal_arm()` path.
 It accepts no command ID or parameter arguments, requires the current reviewed Task 100
 fingerprint, and cannot present Armed until selected-target telemetry confirms it.
+
+The third implemented method is `request_native_auto_start()`. It sends only the pinned
+command-300 all-zero shape, requires current Task 101 Armed plus exact mission evidence,
+and cannot present Running until post-ACK AUTO and mission-progress telemetry both match.
 
 ## 8. Map isolation
 

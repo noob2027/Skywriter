@@ -77,7 +77,7 @@ def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
     assert not any(fragment in source for fragment in deferred_api_fragments)
 
 
-def test_task100_and_101_command_long_emissions_remain_exact_and_confined() -> None:
+def test_task100_through_102_command_long_emissions_remain_exact_and_confined() -> None:
     fragment = "command_" + "long_send"
     users = {
         path.relative_to(SOURCE_ROOT): path.read_text(encoding="utf-8").count(fragment)
@@ -85,20 +85,22 @@ def test_task100_and_101_command_long_emissions_remain_exact_and_confined() -> N
         if fragment in path.read_text(encoding="utf-8")
     }
 
-    assert users == {Path("infrastructure/mavlink/connection.py"): 2}
+    assert users == {Path("infrastructure/mavlink/connection.py"): 3}
     connection_source = (SOURCE_ROOT / "infrastructure/mavlink/connection.py").read_text(
         encoding="utf-8"
     )
     assert "MAV_CMD_RUN_PREARM_CHECKS = 401" in connection_source
     assert "MAV_CMD_COMPONENT_ARM_DISARM = 400" in connection_source
+    assert "MAV_CMD_MISSION_START = 300" in connection_source
     assert "def send_prearm_checks" in connection_source
     assert "def send_normal_arm" in connection_source
+    assert "def send_native_auto_start" in connection_source
     assert "def send_command" not in connection_source
     assert "2989" not in connection_source
     assert "21196" not in connection_source
 
 
-def test_task101_adds_no_generic_or_later_vehicle_action_surface() -> None:
+def test_task102_adds_no_generic_or_later_vehicle_action_surface() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(SOURCE_ROOT.rglob("*.py"))
     )
