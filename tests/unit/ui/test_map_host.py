@@ -74,18 +74,61 @@ def make_host() -> MissionMapHost:
 
 
 def wait_for_render(host: MissionMapHost, action_count: int, *, pending: bool) -> None:
+    latest: dict[str, object] = {}
+
     def rendered() -> bool:
-        snapshot = cast(
-            dict[str, object],
-            evaluate_json(host, "window.skywriterMapTest.snapshot()"),
-        )
+        nonlocal latest
+        latest = cast(dict[str, object], evaluate_json(host, "window.skywriterMapTest.snapshot()"))
+        render_sequence = latest.get("render_sequence")
         return (
-            snapshot.get("rendered") is True
-            and snapshot.get("action_count") == action_count
-            and snapshot.get("pending") is pending
+            latest.get("rendered") is True
+            and latest.get("bridge_connected") is True
+            and latest.get("action_count") == action_count
+            and latest.get("pending") is pending
+            and isinstance(render_sequence, int)
+            and not isinstance(render_sequence, bool)
+            and render_sequence >= 1
+            and latest.get("settled_render_sequence") == render_sequence
+            and latest.get("viewport_intent_suppressed") is False
+            and latest.get("pending_viewport_pan") is False
+            and cast(float, latest.get("container_width", 0)) > 0
+            and cast(float, latest.get("container_height", 0)) > 0
         )
 
-    wait_until(rendered)
+    try:
+        wait_until(rendered)
+    except AssertionError as error:
+        raise AssertionError(
+            f"Leaflet render did not reach a settled mounted state: {latest}"
+        ) from error
+
+
+def wait_for_viewport_pan_completion(
+    host: MissionMapHost,
+    request_id: int,
+) -> dict[str, object]:
+    completion: object = None
+
+    def bridge_round_trip_completed() -> bool:
+        nonlocal completion
+        completion = evaluate_json(
+            host,
+            f"window.skywriterMapTest.viewportPanCompletion({request_id})",
+        )
+        return isinstance(completion, dict)
+
+    try:
+        wait_until(bridge_round_trip_completed)
+    except AssertionError as error:
+        status = evaluate_json(
+            host,
+            f"window.skywriterMapTest.viewportPanStatus({request_id})",
+        )
+        raise AssertionError(
+            f"viewport pan {request_id} did not complete its mounted round trip; "
+            f"last JavaScript layer status: {status}"
+        ) from error
+    return cast(dict[str, object], completion)
 
 
 def point_from_js(value: object) -> QPoint:
@@ -198,22 +241,30 @@ def test_javascript_map_click_and_viewport_intents_cross_mounted_channel() -> No
     request_value = evaluate(host, "window.skywriterMapTest.requestViewportPan(60, 20)")
     assert isinstance(request_value, float) and request_value.is_integer()
     request_id = int(request_value)
-    # This acknowledgement closes the asynchronous Leaflet moveend/QWebChannel race:
-    # it arrives only after the mounted bridge validates and emits the viewport intent.
-    assert viewport.count() == 1 or viewport.wait(8_000)
-    assert viewport.count() == 1
-
-    completion = cast(
+    # This explicit acknowledgement protects the asynchronous Leaflet/QWebChannel
+    # boundary. JavaScript records it only in the real channel's return callback,
+    # after Python validates the payload and synchronously emits the host signal.
+    completion = wait_for_viewport_pan_completion(host, request_id)
+    status = cast(
         dict[str, object],
-        evaluate_json(
-            host,
-            f"window.skywriterMapTest.viewportPanCompletion({request_id})",
-        ),
+        evaluate_json(host, f"window.skywriterMapTest.viewportPanStatus({request_id})"),
     )
+    assert completion["bridge_result"] == "accepted", (
+        "Leaflet moveend reached Python, but strict bridge validation rejected the payload"
+    )
+    assert status["phase"] == "bridge_accepted"
+    assert viewport.count() == 1, (
+        "Python returned accepted without synchronously emitting host.viewport_changed"
+    )
+
     before = cast(dict[str, float], completion["before"])
     after = cast(dict[str, float], completion["after"])
     assert before != after
-    assert cast(int, completion["moveend_sequence"]) >= 1
+    assert cast(int, completion["moveend_sequence"]) == (
+        cast(int, completion["moveend_sequence_before"]) + 1
+    ), "the correlated Leaflet moveend did not run exactly once"
+    assert completion["render_sequence"] == status["render_sequence"]
+    assert completion["moveend_sequence"] == status["moveend_sequence"]
 
     viewport_event = cast(ViewportChanged, viewport.at(0)[0])
     assert (
