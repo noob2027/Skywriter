@@ -126,9 +126,11 @@ def test_qobject_bridge_reports_rejection_without_emitting_an_intent() -> None:
     bridge.intent_received.connect(intents.append)
     bridge.message_rejected.connect(errors.append)
 
-    bridge.receive_message('{"schema_version":1,"type":"point_selected","index":0}')
-    bridge.receive_message('{"schema_version":1,"type":"point_selected","index":false}')
+    accepted = bridge.receive_message('{"schema_version":1,"type":"point_selected","index":0}')
+    rejected = bridge.receive_message('{"schema_version":1,"type":"point_selected","index":false}')
 
+    assert accepted == "accepted"
+    assert rejected == "rejected"
     assert intents == [PointSelected(0)]
     assert len(errors) == 1
 

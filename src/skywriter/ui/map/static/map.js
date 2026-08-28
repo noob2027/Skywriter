@@ -26,9 +26,12 @@
   let activeDrag = null;
   let pointerInsideMap = true;
   let suppressViewportIntent = false;
+  let viewportRenderSequence = 0;
+  let viewportSettledRenderSequence = 0;
   let viewportMoveendSequence = 0;
   let viewportPanRequestSequence = 0;
   let pendingViewportPan = null;
+  const viewportPanStates = new Map();
   const viewportPanCompletions = new Map();
 
   function emptyRenderModel() {
@@ -42,14 +45,18 @@
     };
   }
 
-  function sendIntent(type, fields) {
+  function sendIntent(type, fields, onResult = null) {
     if (!bridge || typeof bridge.receive_message !== "function") {
       status.textContent = "Map bridge is not connected.";
-      return;
+      return false;
     }
-    bridge.receive_message(
-      JSON.stringify({ schema_version: SCHEMA_VERSION, type, ...fields }),
-    );
+    const payload = JSON.stringify({ schema_version: SCHEMA_VERSION, type, ...fields });
+    if (onResult === null) {
+      bridge.receive_message(payload);
+    } else {
+      bridge.receive_message(payload, onResult);
+    }
+    return true;
   }
 
   function pointValue(latLng) {
@@ -279,6 +286,7 @@
   }
 
   function fitRenderedGeometry(fitPoints) {
+    const renderSequence = ++viewportRenderSequence;
     suppressViewportIntent = true;
     if (fitPoints.length === 0) {
       map.setView(DEFAULT_CENTER, 13, { animate: false });
@@ -292,18 +300,55 @@
       });
     }
     window.setTimeout(() => {
+      if (renderSequence !== viewportRenderSequence) {
+        return;
+      }
       suppressViewportIntent = false;
+      viewportSettledRenderSequence = renderSequence;
     }, 0);
   }
 
   function requestViewportPan(x, y) {
     const requestId = ++viewportPanRequestSequence;
+    const requestState = {
+      request_id: requestId,
+      phase: "waiting_for_settled_render",
+      render_sequence: null,
+      moveend_sequence_before: null,
+      moveend_sequence: null,
+    };
+    viewportPanStates.set(requestId, requestState);
     const panWhenRenderSettled = () => {
-      if (suppressViewportIntent || pendingViewportPan !== null) {
+      const rectangle = mapElement.getBoundingClientRect();
+      if (!bridge) {
+        requestState.phase = "waiting_for_bridge";
         window.setTimeout(panWhenRenderSettled, 0);
         return;
       }
-      pendingViewportPan = { requestId, before: map.getCenter() };
+      if (
+        suppressViewportIntent ||
+        viewportSettledRenderSequence !== viewportRenderSequence ||
+        rectangle.width <= 0 ||
+        rectangle.height <= 0
+      ) {
+        requestState.phase = "waiting_for_settled_render";
+        window.setTimeout(panWhenRenderSettled, 0);
+        return;
+      }
+      if (pendingViewportPan !== null) {
+        requestState.phase = "waiting_for_prior_pan";
+        window.setTimeout(panWhenRenderSettled, 0);
+        return;
+      }
+      requestState.phase = "pan_requested";
+      requestState.render_sequence = viewportRenderSequence;
+      requestState.moveend_sequence_before = viewportMoveendSequence;
+      pendingViewportPan = {
+        requestId,
+        before: map.getCenter(),
+        renderSequence: viewportRenderSequence,
+        moveendSequenceBefore: viewportMoveendSequence,
+      };
       map.panBy([x, y], { animate: false });
     };
     panWhenRenderSettled();
@@ -482,17 +527,44 @@
       return;
     }
     const bounds = map.getBounds();
-    sendIntent("viewport_changed", {
+    const fields = {
       south_west: pointValue(bounds.getSouthWest()),
       north_east: pointValue(bounds.getNorthEast()),
-    });
-    if (pendingViewportPan !== null) {
-      viewportPanCompletions.set(pendingViewportPan.requestId, {
-        before: pointValue(pendingViewportPan.before),
-        after: pointValue(map.getCenter()),
-        moveend_sequence: viewportMoveendSequence,
+    };
+    if (pendingViewportPan === null) {
+      sendIntent("viewport_changed", fields);
+      return;
+    }
+    const completedPan = pendingViewportPan;
+    const completedCenter = map.getCenter();
+    const completedMoveendSequence = viewportMoveendSequence;
+    pendingViewportPan = null;
+    const requestState = viewportPanStates.get(completedPan.requestId);
+    if (requestState) {
+      requestState.phase = "moveend_seen_waiting_for_bridge_callback";
+      requestState.moveend_sequence = completedMoveendSequence;
+    }
+    const dispatched = sendIntent("viewport_changed", fields, (bridgeResult) => {
+      viewportPanCompletions.set(completedPan.requestId, {
+        request_id: completedPan.requestId,
+        bridge_result: bridgeResult,
+        before: pointValue(completedPan.before),
+        after: pointValue(completedCenter),
+        render_sequence: completedPan.renderSequence,
+        moveend_sequence_before: completedPan.moveendSequenceBefore,
+        moveend_sequence: completedMoveendSequence,
       });
-      pendingViewportPan = null;
+      if (requestState) {
+        requestState.phase =
+          bridgeResult === "accepted"
+            ? "bridge_accepted"
+            : bridgeResult === "rejected"
+              ? "bridge_rejected"
+              : "bridge_return_invalid";
+      }
+    });
+    if (!dispatched && requestState) {
+      requestState.phase = "bridge_unavailable_after_moveend";
     }
   });
   mapElement.addEventListener("pointerenter", () => {
@@ -545,14 +617,25 @@
       };
     },
     requestViewportPan,
+    viewportPanStatus: (requestId) => viewportPanStates.get(requestId) ?? null,
     viewportPanCompletion: (requestId) =>
       viewportPanCompletions.get(requestId) ?? null,
-    snapshot: () => ({
-      action_count: renderModel.actions.length,
-      pending: renderModel.pending_point !== null,
-      provider: renderModel.tile_provider,
-      rendered: mapElement.dataset.rendered === "true",
-    }),
+    snapshot: () => {
+      const rectangle = mapElement.getBoundingClientRect();
+      return {
+        action_count: renderModel.actions.length,
+        bridge_connected: bridge !== null,
+        container_height: rectangle.height,
+        container_width: rectangle.width,
+        pending: renderModel.pending_point !== null,
+        pending_viewport_pan: pendingViewportPan !== null,
+        provider: renderModel.tile_provider,
+        render_sequence: viewportRenderSequence,
+        rendered: mapElement.dataset.rendered === "true",
+        settled_render_sequence: viewportSettledRenderSequence,
+        viewport_intent_suppressed: suppressViewportIntent,
+      };
+    },
   });
   mapElement.dataset.leafletVersion = L.version;
   mapElement.dataset.ready = "true";

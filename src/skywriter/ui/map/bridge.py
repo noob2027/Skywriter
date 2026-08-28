@@ -109,16 +109,17 @@ class MapBridge(QObject):
 
         return self._current_render_message
 
-    @Slot(str)
-    def receive_message(self, payload: str) -> None:
-        """Validate one untrusted JSON message without propagating exceptions to JS."""
+    @Slot(str, result=str)
+    def receive_message(self, payload: str) -> str:
+        """Validate and synchronously emit one intent before acknowledging map content."""
 
         try:
             intent = parse_map_intent(payload)
         except MapBridgeError as error:
             self.message_rejected.emit(str(error))
-            return
+            return "rejected"
         self.intent_received.emit(intent)
+        return "accepted"
 
     def publish_render_model(self, model: RenderModel) -> None:
         """Send a sanitized, versioned render message to a connected map host."""
