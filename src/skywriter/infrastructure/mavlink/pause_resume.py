@@ -249,7 +249,9 @@ class NativePauseResumeGateway:
                 if (
                     sequence is None
                     or not 1 <= sequence < expected_item_count
-                    or (total is not None and total != expected_item_count)
+                    # Pinned ArduCopter excludes native sequence-zero Home from
+                    # MISSION_CURRENT.total.
+                    or (total is not None and total != expected_item_count - 1)
                 ):
                     return self._result(
                         action,
@@ -472,7 +474,9 @@ class NativePauseResumeGateway:
                 if (
                     sequence is None
                     or not 1 <= sequence < expected_item_count
-                    or (total is not None and total != expected_item_count)
+                    # Pinned ArduCopter excludes native sequence-zero Home from
+                    # MISSION_CURRENT.total.
+                    or (total is not None and total != expected_item_count - 1)
                 ):
                     return self._result(
                         action,

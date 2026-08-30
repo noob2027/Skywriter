@@ -135,7 +135,7 @@ def heartbeat(*, mode: int = 3, armed: bool = True) -> IncomingMessage:
     )
 
 
-def mission_state(state: int, *, sequence: int = 2, total: int = 4) -> IncomingMessage:
+def mission_state(state: int, *, sequence: int = 2, total: int = 3) -> IncomingMessage:
     return message(
         "MISSION_CURRENT",
         {"seq": sequence, "total": total, "mission_state": state, "mission_mode": 1},

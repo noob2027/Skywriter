@@ -43,8 +43,9 @@ Pause sends nothing unless all of these facts are current together:
   report Copter AUTO mode 3;
 - exact same-vehicle `SIK_VERIFIED` mission evidence is still current;
 - Task 102 reports telemetry-confirmed Running for the same mission digest and target;
-- fresh `MISSION_CURRENT` reports state Active, the exact package count when available,
-  and an in-bounds executable sequence that is not native Land; and
+- fresh `MISSION_CURRENT` reports state Active, the pinned ArduCopter execution count
+  (the verified package excluding sequence-zero Home) when available, and an in-bounds
+  executable sequence that is not native Land; and
 - the command channel is idle.
 
 Resume additionally requires the Task 103 service to have positively observed the pinned
@@ -66,7 +67,8 @@ distinct evidence.
 An accepted ACK opens a bounded observation phase:
 
 - **Paused** requires a later selected-target `MISSION_CURRENT` with pinned state Paused,
-  an in-bounds sequence, and the exact verified item count when present.
+  an in-bounds sequence, and the exact verified execution count when present. Pinned
+  ArduCopter deliberately excludes sequence-zero Home from that `total` field.
 - **Running** after Resume requires the same later evidence with pinned state Active.
 - later heartbeats must remain armed and in AUTO; later Land, landing, on-ground,
   Complete, disarm, wrong sequence/count, or a different mode fails closed.

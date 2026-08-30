@@ -178,7 +178,9 @@ def connected(
         TimedSignal.unavailable(10.0),
         TimedSignal.unavailable(60.0),
         TimedSignal(
-            MissionProgressTelemetry(sequence, len(package.items), mission_state, 1),
+            # Pinned ArduCopter excludes native sequence-zero Home from
+            # MISSION_CURRENT.total.
+            MissionProgressTelemetry(sequence, len(package.items) - 1, mission_state, 1),
             now_s,
             5.0,
         ),
@@ -467,6 +469,25 @@ def test_target_and_progress_changes_fail_closed() -> None:
     )
     assert progress_result.state is NativePauseResumeState.MISSION_MISMATCH
     assert gateway.pause_calls == 0
+
+    wrong_total = replace(
+        original,
+        telemetry=replace(
+            original.telemetry,
+            mission=TimedSignal(MissionProgressTelemetry(2, 99, 3, 1), 100.2, 5.0),
+        ),
+    )
+    total_gateway = FakePauseResumeGateway(result(NativePauseResumeAction.PAUSE))
+    total_result = NativePauseResumeService().request_native_pause(
+        total_gateway,
+        wrong_total,
+        auto_started(original),
+        now_s=100.2,
+        command_channel_idle=True,
+        cancellation=NeverCancelled(),
+    )
+    assert total_result.state is NativePauseResumeState.MISSION_MISMATCH
+    assert total_gateway.pause_calls == 0
 
 
 def test_repeated_pause_while_pending_sends_once() -> None:

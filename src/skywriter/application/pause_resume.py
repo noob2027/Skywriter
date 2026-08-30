@@ -526,10 +526,13 @@ def _control_context(
         if progress.current_sequence is not None
         else progress.last_reached_sequence
     )
+    # ArduCopter's MISSION_CURRENT.total deliberately excludes the native
+    # sequence-zero Home item, while the verified upload package includes it.
+    expected_execution_total = len(package.items) - 1
     if (
         sequence is None
         or not start.first_executable_sequence <= sequence <= start.last_sequence
-        or (progress.total_items is not None and progress.total_items != len(package.items))
+        or (progress.total_items is not None and progress.total_items != expected_execution_total)
     ):
         return NativePauseResumeState.MISSION_MISMATCH, (
             "Mission progress is outside the exact verified mission bounds."
