@@ -335,7 +335,6 @@ def test_concrete_link_emits_only_command_300_with_fixed_zero_parameters() -> No
     source = "\n".join(path.read_text(encoding="utf-8") for path in source_root.rglob("*.py"))
     for prohibited in (
         "MAV_CMD_DO_SET_MODE",
-        "MAV_CMD_DO_PAUSE_CONTINUE",
         "MAV_CMD_NAV_RETURN_TO_LAUNCH",
         "PARAM_SET",
         "SET_POSITION_TARGET",

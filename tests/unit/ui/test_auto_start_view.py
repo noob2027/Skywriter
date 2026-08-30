@@ -135,16 +135,14 @@ def test_native_rejection_text_is_visible_beside_receive_only_telemetry() -> Non
     assert "Flight mode change failed" in messages.item(0).text()
 
 
-def test_flight_ui_contains_no_later_or_generic_command_control() -> None:
-    create_application(["skywriter-task-102-confinement"])
+def test_flight_ui_contains_only_approved_through_task103_controls() -> None:
+    create_application(["skywriter-task-103-confinement"])
     widget = FlightTelemetryWidget()
     buttons = {button.objectName() for button in widget.findChildren(QPushButton)}
-    assert buttons == {"nativeAutoStartButton"}
+    assert buttons == {"nativeAutoStartButton", "nativePauseButton", "nativeResumeButton"}
     source = Path(__file__).parents[3] / "src/skywriter/ui/flight.py"
     text = source.read_text(encoding="utf-8").casefold()
     for prohibited in (
-        "pause mission",
-        "resume mission",
         "land here",
         "return to launch",
         "parameter write",

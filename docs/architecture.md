@@ -222,6 +222,18 @@ selected-target armed AUTO heartbeat and later in-bounds native mission progress
 loss invalidates the application state without sending substitute navigation, while the
 stock flight controller continues according to its configured onboard behavior.
 
+Task 103 adds a separate `NativePauseResumeService` and `NativePauseResumeGateway`.
+The application service consumes Task 102's exact Running authorization plus current
+same-target mission-state telemetry. Its two gateway/link methods expose only fixed
+command-193 Pause (`param1=0`) and Resume (`param1=1`) actions with reserved zeros; no
+command, mode, coordinate, or parameter array is caller supplied.
+
+An accepted command-193 ACK is not Paused or resumed Running proof. Pause requires a
+later in-bounds `MISSION_CURRENT` with the pinned Paused state, while Resume requires a
+later Active state. Resume is unavailable until the application has positively observed
+Paused. Mission completion, landing, disarm, non-AUTO mode, target/mission mismatch,
+stale telemetry, and link loss disable both actions without fallback control.
+
 Readiness is derived, never toggled directly by a widget. Example predicates:
 
 ```text
@@ -281,6 +293,10 @@ fingerprint, and cannot present Armed until selected-target telemetry confirms i
 The third implemented method is `request_native_auto_start()`. It sends only the pinned
 command-300 all-zero shape, requires current Task 101 Armed plus exact mission evidence,
 and cannot present Running until post-ACK AUTO and mission-progress telemetry both match.
+
+The fourth implemented compartment exposes only `request_native_pause()` and
+`request_native_resume()`. Both send command 193 through fixed dedicated link methods,
+and require later pinned mission-state telemetry before presenting Paused or Running.
 
 ## 8. Map isolation
 

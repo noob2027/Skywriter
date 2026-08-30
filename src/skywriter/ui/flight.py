@@ -1,4 +1,4 @@
-"""Flight telemetry plus the dedicated Task 102 native mission-start intent."""
+"""Flight telemetry plus the dedicated Task 102–103 native flight intents."""
 
 from __future__ import annotations
 
@@ -18,6 +18,10 @@ from PySide6.QtWidgets import (
 )
 
 from skywriter.application.auto_start import NativeAutoStartSnapshot, NativeAutoStartState
+from skywriter.application.pause_resume import (
+    NativePauseResumeSnapshot,
+    NativePauseResumeState,
+)
 from skywriter.application.telemetry import (
     TelemetryFreshness,
     TelemetryMapLayers,
@@ -26,6 +30,7 @@ from skywriter.application.telemetry import (
     build_map_layers,
 )
 from skywriter.ui.auto_start_worker import NativeAutoStartWorkerHandoff
+from skywriter.ui.pause_resume_worker import NativePauseResumeWorkerHandoff
 from skywriter.ui.telemetry import (
     NativeMessagesList,
     TelemetryCard,
@@ -39,11 +44,21 @@ class NativeAutoStartRequested:
     pass
 
 
-FlightIntent: TypeAlias = NativeAutoStartRequested
+@dataclass(frozen=True, slots=True)
+class NativePauseRequested:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class NativeResumeRequested:
+    pass
+
+
+FlightIntent: TypeAlias = NativeAutoStartRequested | NativePauseRequested | NativeResumeRequested
 
 
 class FlightTelemetryWidget(QWidget):
-    """Display telemetry and emit only the typed native mission-start intent."""
+    """Display telemetry and emit only the approved typed native flight intents."""
 
     intent_emitted = Signal(object)
 
@@ -51,6 +66,8 @@ class FlightTelemetryWidget(QWidget):
         super().__init__()
         self._auto_start = NativeAutoStartSnapshot()
         self._auto_start_worker: NativeAutoStartWorkerHandoff | None = None
+        self._pause_resume = NativePauseResumeSnapshot()
+        self._pause_resume_worker: NativePauseResumeWorkerHandoff | None = None
         self._telemetry_native_messages: tuple[tuple[int, str], ...] = ()
         self.setObjectName("flightTelemetryView")
         root = QVBoxLayout(self)
@@ -58,8 +75,9 @@ class FlightTelemetryWidget(QWidget):
         heading.setObjectName("viewHeading")
         heading.setStyleSheet("font-size: 24px; font-weight: 700; color: #173f3d;")
         disclaimer = QLabel(
-            "TELEMETRY IS READ-ONLY. The only vehicle action here is the gated, acknowledged "
-            "native AUTO mission start below; SKYWriter never streams substitute navigation."
+            "TELEMETRY IS READ-ONLY EXCEPT FOR THE DEDICATED CONTROLS BELOW. Start, Pause, "
+            "and Resume are independently gated and acknowledged; SKYWriter never streams "
+            "substitute navigation."
         )
         disclaimer.setObjectName("flightTelemetryDisclaimer")
         disclaimer.setWordWrap(True)
@@ -101,6 +119,44 @@ class FlightTelemetryWidget(QWidget):
         start_layout.addWidget(self._auto_start_button)
         root.addWidget(start_panel)
 
+        pause_panel = QFrame()
+        pause_panel.setObjectName("nativePauseResumePanel")
+        pause_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        pause_layout = QVBoxLayout(pause_panel)
+        pause_heading = QLabel("Native mission Pause / Resume")
+        pause_heading.setStyleSheet("font-size: 16px; font-weight: 700;")
+        pause_warning = QLabel(
+            "PAUSE AND RESUME CHANGE FLIGHT BEHAVIOR. Pause is available only with current "
+            "native Active mission telemetry. Resume is available only after SKYWriter has "
+            "positively observed the pinned Paused mission state."
+        )
+        pause_warning.setObjectName("nativePauseResumeWarning")
+        pause_warning.setWordWrap(True)
+        pause_warning.setStyleSheet(
+            "padding: 9px; background: #fff0c7; color: #604400; font-weight: 700;"
+        )
+        self._pause_resume_status = QLabel()
+        self._pause_resume_status.setObjectName("nativePauseResumeStatus")
+        self._pause_resume_status.setWordWrap(True)
+        self._pause_resume_detail = QLabel()
+        self._pause_resume_detail.setObjectName("nativePauseResumeDetail")
+        self._pause_resume_detail.setWordWrap(True)
+        control_grid = QGridLayout()
+        self._pause_button = QPushButton("Pause native mission")
+        self._pause_button.setObjectName("nativePauseButton")
+        self._pause_button.clicked.connect(self._emit_pause_request)
+        self._resume_button = QPushButton("Resume native mission")
+        self._resume_button.setObjectName("nativeResumeButton")
+        self._resume_button.clicked.connect(self._emit_resume_request)
+        control_grid.addWidget(self._pause_button, 0, 0)
+        control_grid.addWidget(self._resume_button, 0, 1)
+        pause_layout.addWidget(pause_heading)
+        pause_layout.addWidget(pause_warning)
+        pause_layout.addWidget(self._pause_resume_status)
+        pause_layout.addWidget(self._pause_resume_detail)
+        pause_layout.addLayout(control_grid)
+        root.addWidget(pause_panel)
+
         grid = QGridLayout()
         self._connection = TelemetryCard("Vehicle / link", "flightConnection")
         self._state = TelemetryCard("Mode / armed state", "flightVehicleState")
@@ -136,6 +192,7 @@ class FlightTelemetryWidget(QWidget):
         splitter.setStretchFactor(1, 2)
         root.addWidget(splitter, 1)
         self.render_auto_start(self._auto_start)
+        self.render_pause_resume(self._pause_resume)
         self.render_snapshot(None, now_s=0.0)
 
     def _emit_auto_start_request(self) -> None:
@@ -158,6 +215,35 @@ class FlightTelemetryWidget(QWidget):
         self._auto_start_worker = worker
         return worker
 
+    def _emit_pause_request(self) -> None:
+        self._pause_button.setEnabled(False)
+        self._resume_button.setEnabled(False)
+        self.intent_emitted.emit(NativePauseRequested())
+        if self._pause_resume_worker is not None:
+            self._pause_resume_worker.submit_pause()
+
+    def _emit_resume_request(self) -> None:
+        self._pause_button.setEnabled(False)
+        self._resume_button.setEnabled(False)
+        self.intent_emitted.emit(NativeResumeRequested())
+        if self._pause_resume_worker is not None:
+            self._pause_resume_worker.submit_resume()
+
+    def bind_native_pause_resume_operations(
+        self,
+        pause_operation: Callable[[], NativePauseResumeSnapshot],
+        resume_operation: Callable[[], NativePauseResumeSnapshot],
+    ) -> NativePauseResumeWorkerHandoff:
+        """Bind both blocking application operations to one exclusive worker."""
+
+        if self._pause_resume_worker is not None:
+            raise RuntimeError("native Pause/Resume operations are already bound")
+        worker = NativePauseResumeWorkerHandoff(pause_operation, resume_operation)
+        worker.snapshot_ready.connect(self._render_worker_pause_resume_snapshot)
+        worker.operation_failed.connect(self._render_pause_resume_worker_failure)
+        self._pause_resume_worker = worker
+        return worker
+
     def _render_worker_auto_start_snapshot(self, snapshot: object) -> None:
         if isinstance(snapshot, NativeAutoStartSnapshot):
             self.render_auto_start(snapshot)
@@ -166,6 +252,16 @@ class FlightTelemetryWidget(QWidget):
         self._auto_start_status.setText("Worker failed — onboard state uncertain")
         self._auto_start_detail.setText(detail)
         self._auto_start_button.setEnabled(False)
+
+    def _render_worker_pause_resume_snapshot(self, snapshot: object) -> None:
+        if isinstance(snapshot, NativePauseResumeSnapshot):
+            self.render_pause_resume(snapshot)
+
+    def _render_pause_resume_worker_failure(self, detail: str) -> None:
+        self._pause_resume_status.setText("Worker failed — onboard state uncertain")
+        self._pause_resume_detail.setText(detail)
+        self._pause_button.setEnabled(False)
+        self._resume_button.setEnabled(False)
 
     @property
     def auto_start_snapshot(self) -> NativeAutoStartSnapshot:
@@ -185,6 +281,27 @@ class FlightTelemetryWidget(QWidget):
             and snapshot.state is not NativeAutoStartState.PENDING
             and snapshot.state is not NativeAutoStartState.RUNNING
         )
+        self._render_native_messages()
+
+    @property
+    def pause_resume_snapshot(self) -> NativePauseResumeSnapshot:
+        return self._pause_resume
+
+    def render_pause_resume(self, snapshot: NativePauseResumeSnapshot) -> None:
+        self._pause_resume = snapshot
+        self._pause_resume_status.setText(_pause_resume_state_text(snapshot.state))
+        repeated = (
+            " Repeated activation was ignored while the original request remained active."
+            if snapshot.repeated_request_ignored
+            else ""
+        )
+        self._pause_resume_detail.setText(f"{snapshot.detail}{repeated}")
+        pending = snapshot.state in (
+            NativePauseResumeState.PAUSE_PENDING,
+            NativePauseResumeState.RESUME_PENDING,
+        )
+        self._pause_button.setEnabled(snapshot.pause_available and not pending)
+        self._resume_button.setEnabled(snapshot.resume_available and not pending)
         self._render_native_messages()
 
     @property
@@ -269,10 +386,15 @@ class FlightTelemetryWidget(QWidget):
         self._messages.scrollToBottom()
 
     def _render_native_messages(self) -> None:
-        command_messages = tuple(
+        auto_start_messages = tuple(
             (message.severity, message.text) for message in self._auto_start.native_messages
         )
-        self._messages.render_messages((*self._telemetry_native_messages, *command_messages))
+        pause_resume_messages = tuple(
+            (message.severity, message.text) for message in self._pause_resume.native_messages
+        )
+        self._messages.render_messages(
+            (*self._telemetry_native_messages, *auto_start_messages, *pause_resume_messages)
+        )
         self._messages.scrollToBottom()
 
 
@@ -319,4 +441,43 @@ def _auto_start_state_text(state: NativeAutoStartState) -> str:
         NativeAutoStartState.BLOCKED_BUSY: "Command channel busy",
         NativeAutoStartState.BLOCKED_SEQUENCE: "Verified native start sequence is invalid",
         NativeAutoStartState.BLOCKED_ALREADY_AUTO: "Vehicle is already in AUTO",
+    }[state]
+
+
+def _pause_resume_state_text(state: NativePauseResumeState) -> str:
+    return {
+        NativePauseResumeState.IDLE: "Pause blocked — current native mission state required",
+        NativePauseResumeState.RUNNING: "Running confirmed — Pause is available",
+        NativePauseResumeState.PAUSE_PENDING: "Pause pending — controls locked",
+        NativePauseResumeState.PAUSED: "Paused confirmed — Resume is available",
+        NativePauseResumeState.RESUME_PENDING: "Resume pending — controls locked",
+        NativePauseResumeState.REJECTED: "Pause/Resume rejected by ArduCopter",
+        NativePauseResumeState.UNSUPPORTED: "Native Pause/Resume unsupported",
+        NativePauseResumeState.TIMED_OUT: "Acknowledgment timed out — state uncertain",
+        NativePauseResumeState.CANCELLED: "Request cancelled — state uncertain",
+        NativePauseResumeState.WRONG_TARGET: "Wrong-target acknowledgment — blocked",
+        NativePauseResumeState.WRONG_ACK: "Unrelated or misaddressed acknowledgment — blocked",
+        NativePauseResumeState.STALE_LINK: "SiK telemetry stale — state uncertain",
+        NativePauseResumeState.LINK_LOST: "SiK link lost — onboard behavior remains native",
+        NativePauseResumeState.ACKNOWLEDGED_NO_PAUSED_TELEMETRY: (
+            "Pause acknowledged, but Paused telemetry is absent — state uncertain"
+        ),
+        NativePauseResumeState.ACKNOWLEDGED_NO_RUNNING_TELEMETRY: (
+            "Resume acknowledged, but Active telemetry is absent — state uncertain"
+        ),
+        NativePauseResumeState.UNEXPECTED_MODE: "Vehicle left expected AUTO mode",
+        NativePauseResumeState.MISSION_COMPLETED: "Mission Complete — controls disabled",
+        NativePauseResumeState.LANDING: "Vehicle Landing — controls disabled",
+        NativePauseResumeState.DISARMED: "Vehicle Disarmed / On Ground — controls disabled",
+        NativePauseResumeState.MISSION_MISMATCH: "Mission evidence or progress mismatched",
+        NativePauseResumeState.TELEMETRY_DISAGREEMENT: (
+            "Acknowledgment and mission-state telemetry disagree"
+        ),
+        NativePauseResumeState.BLOCKED_WRONG_LINK: "SiK link required",
+        NativePauseResumeState.BLOCKED_MISSION: "Exact current mission verification required",
+        NativePauseResumeState.BLOCKED_AUTO_START: "Task 102 Running evidence required",
+        NativePauseResumeState.BLOCKED_IDENTITY: "Same-target identity unresolved",
+        NativePauseResumeState.BLOCKED_BUSY: "Command channel busy",
+        NativePauseResumeState.BLOCKED_NOT_RUNNING: "Current Active mission state required",
+        NativePauseResumeState.BLOCKED_NOT_PAUSED: "Positively observed Paused state required",
     }[state]
