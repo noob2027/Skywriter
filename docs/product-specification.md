@@ -136,6 +136,14 @@ For Start Mission, an accepted acknowledgment is also not success. The UI may pr
 native mission progress within the exact verified onboard mission. No fallback Guided
 setpoint stream is sent when confirmation or the command link is lost.
 
+For Pause and Resume, an accepted acknowledgment is likewise not the resulting state.
+The UI may present **Paused** or resumed **Running** only after later fresh selected-target
+`MISSION_CURRENT` telemetry reports the pinned Paused or Active mission state inside the
+exact verified mission. Resume remains unavailable until Paused has been positively
+observed. A fixed read-only request for `MISSION_CURRENT` may obtain this post-ACK proof;
+it cannot select a mode or steer. Landing, completion, disarm, mode/target change, or link
+loss disables both controls without a substitute hold or navigation stream.
+
 ## 5. Structural validation versus operational policy
 
 Prototype validation prevents malformed data: missing fields, non-numeric values, invalid coordinates, non-positive speed/time/radius, illegal ordering, unknown actions, or missing Land. It intentionally does not impose maximum altitude, maximum range, maximum speed, minimum radius, maximum hold time, a geofence, terrain clearance, or aircraft-specific capability rules.

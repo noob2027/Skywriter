@@ -145,7 +145,9 @@ def test_telemetry_stays_read_only_around_only_approved_serial_actions() -> None
         "normalArmButton",
     ]
     assert [button.objectName() for button in flight.findChildren(QPushButton)] == [
-        "nativeAutoStartButton"
+        "nativeAutoStartButton",
+        "nativePauseButton",
+        "nativeResumeButton",
     ]
     preflight_disclaimer = preflight.findChild(QLabel, "preflightTelemetryDisclaimer")
     flight_disclaimer = flight.findChild(QLabel, "flightTelemetryDisclaimer")

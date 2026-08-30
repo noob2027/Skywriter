@@ -20,9 +20,12 @@ MAV_MODE_FLAG_SAFETY_ARMED = 128
 MAV_MISSION_ACCEPTED = 0
 MAV_MISSION_OPERATION_CANCELLED = 15
 MAV_MISSION_TYPE_MISSION = 0
+MAV_CMD_REQUEST_MESSAGE = 512
+MAV_CMD_DO_PAUSE_CONTINUE = 193
 MAV_CMD_MISSION_START = 300
 MAV_CMD_COMPONENT_ARM_DISARM = 400
 MAV_CMD_RUN_PREARM_CHECKS = 401
+MAVLINK_MSG_ID_MISSION_CURRENT = 42
 
 
 class TransportKind(StrEnum):
@@ -617,6 +620,125 @@ class PymavlinkNativeAutoStartLink:
                 MAV_CMD_MISSION_START,
                 0,
                 0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            )
+        except (EOFError, OSError) as error:
+            self._connected = False
+            raise ConnectionError("MAVLink connection closed while sending") from error
+
+    def _require_connected(self) -> None:
+        if not self._connected:
+            raise ConnectionError("MAVLink connection is closed")
+
+
+class PymavlinkNativePauseResumeLink:
+    """pymavlink link exposing only the fixed Task 103 Pause/Resume actions."""
+
+    def __init__(
+        self,
+        connection: Any,
+        descriptor: TransportDescriptor,
+        *,
+        local_address: MavlinkAddress = DEFAULT_GCS_ADDRESS,
+    ) -> None:
+        if descriptor.kind is not TransportKind.SIK:
+            raise ValueError("native Pause/Resume requires an explicitly classified SiK link")
+        self._connection = connection
+        self.descriptor = descriptor
+        self.local_address = local_address
+        self._connected = True
+
+    def is_connected(self) -> bool:
+        return self._connected
+
+    def close(self) -> None:
+        if not self._connected:
+            return
+        self._connected = False
+        close = getattr(self._connection, "close", None)
+        if callable(close):
+            close()
+
+    def receive(self, timeout_s: float) -> IncomingMessage | None:
+        self._require_connected()
+        deadline_s = time.monotonic() + max(0.0, timeout_s)
+        first_attempt = True
+        while first_attempt or time.monotonic() < deadline_s:
+            first_attempt = False
+            try:
+                raw = self._connection.recv_match(
+                    blocking=True,
+                    timeout=max(0.0, deadline_s - time.monotonic()),
+                )
+            except (EOFError, OSError) as error:
+                self._connected = False
+                raise ConnectionError("MAVLink connection closed while receiving") from error
+            if raw is None:
+                return None
+            if str(raw.get_type()) == "BAD_DATA":
+                continue
+            fields = raw.to_dict()
+            fields.pop("mavpackettype", None)
+            return IncomingMessage(
+                name=str(raw.get_type()),
+                source=MavlinkAddress(raw.get_srcSystem(), raw.get_srcComponent()),
+                fields=fields,
+            )
+        return None
+
+    def send_native_pause(self, target: MavlinkAddress) -> None:
+        """Send command 193 with the pinned Pause selector and reserved zeros."""
+
+        self._send_pause_continue(target, continue_mission=False)
+
+    def send_native_resume(self, target: MavlinkAddress) -> None:
+        """Send command 193 with the pinned Resume selector and reserved zeros."""
+
+        self._send_pause_continue(target, continue_mission=True)
+
+    def request_native_mission_state(self, target: MavlinkAddress) -> None:
+        """Request the fixed read-only MISSION_CURRENT state observation."""
+
+        self._require_connected()
+        try:
+            self._connection.mav.command_long_send(
+                target.system_id,
+                target.component_id,
+                MAV_CMD_REQUEST_MESSAGE,
+                0,
+                MAVLINK_MSG_ID_MISSION_CURRENT,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            )
+        except (EOFError, OSError) as error:
+            self._connected = False
+            raise ConnectionError(
+                "MAVLink connection closed while requesting mission state"
+            ) from error
+
+    def _send_pause_continue(
+        self,
+        target: MavlinkAddress,
+        *,
+        continue_mission: bool,
+    ) -> None:
+        self._require_connected()
+        try:
+            self._connection.mav.command_long_send(
+                target.system_id,
+                target.component_id,
+                MAV_CMD_DO_PAUSE_CONTINUE,
+                0,
+                int(continue_mission),
                 0,
                 0,
                 0,

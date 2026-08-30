@@ -1,8 +1,8 @@
-"""Genuine Task 009–102 production-boundary evidence against pinned stock SITL.
+"""Genuine Task 009–103 production-boundary evidence against pinned stock SITL.
 
-Normal Arm and native AUTO mission start use their dedicated production compartments.
-Only the deliberately invalid start selector used to capture stock-native denial remains
-test-only; it creates no reusable application, UI, or production command surface.
+Normal Arm, native AUTO start, and native Pause/Resume use dedicated production
+compartments. Only the deliberately invalid start selector used to capture stock-native
+denial remains test-only; it creates no reusable application, UI, or production surface.
 """
 
 from __future__ import annotations
@@ -39,8 +39,15 @@ from skywriter.application.auto_start import (
 )
 from skywriter.application.connected import (
     ConnectedMissionService,
+    ConnectedMissionSnapshot,
     ConnectedTarget,
     ConnectedVerificationState,
+)
+from skywriter.application.pause_resume import (
+    MAV_MISSION_STATE_ACTIVE,
+    MAV_MISSION_STATE_PAUSED,
+    NativePauseResumeService,
+    NativePauseResumeState,
 )
 from skywriter.application.prearm import (
     NativePrearmAssessment,
@@ -79,10 +86,15 @@ from skywriter.infrastructure.mavlink.connection import (
     NeverCancelled,
     PymavlinkMissionLink,
     PymavlinkNativeAutoStartLink,
+    PymavlinkNativePauseResumeLink,
     PymavlinkNormalArmLink,
     PymavlinkPrearmLink,
     TransportDescriptor,
     TransportKind,
+)
+from skywriter.infrastructure.mavlink.pause_resume import (
+    NativePauseResumeGateway,
+    NativePauseResumeLink,
 )
 from skywriter.infrastructure.mavlink.prearm import NativePrearmGateway, PrearmCommandLink
 
@@ -165,6 +177,10 @@ def _request_execution_telemetry(connection: Any, trace: list[dict[str, object]]
         (
             "COMMAND_LONG_REQUEST_GLOBAL_POSITION_INT",
             int(mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT),
+        ),
+        (
+            "COMMAND_LONG_REQUEST_MISSION_CURRENT",
+            int(mavutil.mavlink.MAVLINK_MSG_ID_MISSION_CURRENT),
         ),
     ):
         trace.append(
@@ -378,6 +394,93 @@ class _EvidenceAutoStartLink(NativeAutoStartLink):
         self._delegate.send_native_auto_start(target)
 
 
+class _EvidencePauseResumeLink(NativePauseResumeLink):
+    """Trace wrapper around the two fixed production command-193 actions."""
+
+    def __init__(
+        self,
+        delegate: PymavlinkNativePauseResumeLink,
+        trace: list[dict[str, object]],
+    ) -> None:
+        self._delegate = delegate
+        self._trace = trace
+        self.descriptor = delegate.descriptor
+        self.local_address = delegate.local_address
+
+    def is_connected(self) -> bool:
+        return self._delegate.is_connected()
+
+    def receive(self, timeout_s: float) -> IncomingMessage | None:
+        message = self._delegate.receive(timeout_s)
+        if message is not None and message.name in {
+            "COMMAND_ACK",
+            "HEARTBEAT",
+            "MISSION_CURRENT",
+            "MISSION_ITEM_REACHED",
+            "EXTENDED_SYS_STATE",
+            "STATUSTEXT",
+        }:
+            self._trace.append(
+                {
+                    "elapsed_monotonic_s": time.monotonic(),
+                    "message_type": message.name,
+                    "source_system": message.source.system_id,
+                    "source_component": message.source.component_id,
+                    "fields": _json_safe(message.fields),
+                }
+            )
+        return message
+
+    def send_native_pause(self, target: MavlinkAddress) -> None:
+        self._record_command(target, continue_mission=False)
+        self._delegate.send_native_pause(target)
+
+    def send_native_resume(self, target: MavlinkAddress) -> None:
+        self._record_command(target, continue_mission=True)
+        self._delegate.send_native_resume(target)
+
+    def request_native_mission_state(self, target: MavlinkAddress) -> None:
+        from pymavlink import mavutil
+
+        self._trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "COMMAND_LONG_REQUEST_MISSION_CURRENT",
+                "fields": {
+                    "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+                    "requested_message_id": int(mavutil.mavlink.MAVLINK_MSG_ID_MISSION_CURRENT),
+                    "target_component": target.component_id,
+                    "target_system": target.system_id,
+                },
+            }
+        )
+        self._delegate.request_native_mission_state(target)
+
+    def _record_command(
+        self,
+        target: MavlinkAddress,
+        *,
+        continue_mission: bool,
+    ) -> None:
+        self._trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": (
+                    "COMMAND_LONG_NATIVE_RESUME"
+                    if continue_mission
+                    else "COMMAND_LONG_NATIVE_PAUSE"
+                ),
+                "fields": {
+                    "target_system": target.system_id,
+                    "target_component": target.component_id,
+                    "command": 193,
+                    "confirmation": 0,
+                    "params": [int(continue_mission), 0, 0, 0, 0, 0, 0],
+                },
+            }
+        )
+
+
 def _wait_prearm_ready(
     connection: Any,
     trace: list[dict[str, object]],
@@ -566,6 +669,65 @@ def _record_execution_message(trace: list[dict[str, object]], message: Any) -> N
     )
 
 
+def _wait_for_mission_state(
+    service: ConnectedMissionService,
+    port: ConnectedMavlinkPort,
+    connection: Any,
+    trace: list[dict[str, object]],
+    cancellation: NeverCancelled,
+    *,
+    expected_state: int,
+    sequence: int,
+    timeout_s: float = 30.0,
+) -> ConnectedMissionSnapshot:
+    deadline_s = time.monotonic() + timeout_s
+    last: dict[str, object] = {}
+    while time.monotonic() < deadline_s:
+        _request_execution_telemetry(connection, trace)
+        service.refresh_telemetry(
+            port,
+            duration_s=1.25,
+            cancellation=cancellation,
+        )
+        snapshot = service.snapshot
+        telemetry = snapshot.telemetry
+        heartbeat = None if telemetry is None else telemetry.heartbeat.value
+        progress = None if telemetry is None else telemetry.mission.value
+        last = {
+            "armed": None if heartbeat is None else heartbeat.armed,
+            "mode": None if heartbeat is None else heartbeat.mode_number,
+            "sequence": None if progress is None else progress.current_sequence,
+            "mission_state": None if progress is None else progress.mission_state,
+        }
+        trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "PAUSE_RESUME_GATE_TELEMETRY",
+                "fields": last,
+            }
+        )
+        if (
+            heartbeat is not None
+            and heartbeat.armed
+            and heartbeat.mode_number == 3
+            and progress is not None
+            and progress.current_sequence == sequence
+            and progress.mission_state == expected_state
+        ):
+            return snapshot
+        if (
+            progress is not None
+            and progress.current_sequence is not None
+            and progress.current_sequence > sequence
+        ):
+            raise AssertionError(
+                f"mission advanced past requested Task 103 action {sequence}; last={last}"
+            )
+    raise AssertionError(
+        f"mission did not report state {expected_state} at sequence {sequence}; last={last}"
+    )
+
+
 def _reference_download(connection: Any) -> tuple[NativeMissionItem, ...]:
     from pymavlink import mavutil
 
@@ -629,12 +791,14 @@ def _reference_download(connection: Any) -> tuple[NativeMissionItem, ...]:
 
 def _mission() -> Mission:
     return Mission(
-        settings=MissionSettings(3.0, 3.0, True),
-        id="task-009-stock-sitl",
+        settings=MissionSettings(3.0, 8.0, True),
+        id="task-103-stock-sitl",
         actions=(
-            ProceedAction(GeoPoint(51.5007472, -0.1246254), 3.0),
-            HoldAction(GeoPoint(51.5007562, -0.1246130), 3.0, 1.0),
-            CircleAction(GeoPoint(51.5007472, -0.1246005), 3.0, 2.0),
+            # The longer WP legs provide deterministic windows for positive Pause
+            # proof while Proceed and the approach phase of Hold own execution.
+            ProceedAction(GeoPoint(51.5011792, -0.1246254), 3.0),
+            HoldAction(GeoPoint(51.5016292, -0.1245000), 3.0, 3.0),
+            CircleAction(GeoPoint(51.5011792, -0.1243500), 3.0, 5.0),
             LandAction(HOME, 3.0),
         ),
     )
@@ -754,6 +918,8 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     positive_prearm: PrearmReadinessSnapshot | None = None
     positive_arm: NormalArmSnapshot | None = None
     positive_auto_start: NativeAutoStartSnapshot | None = None
+    pause_resume_cycles: list[dict[str, object]] = []
+    pause_resume_service = NativePauseResumeService()
     landed_auto_arm_rejection: NormalArmCommandResult | None = None
     armed_rejection: PrearmCommandResult | None = None
     native_auto_start_rejection: int | None = None
@@ -761,6 +927,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     link_reconnected_at_s: float | None = None
     observation_target: ConnectedTarget | None = None
     auto_start_state_after_link_loss: NativeAutoStartState | None = None
+    pause_resume_state_after_link_loss: NativePauseResumeState | None = None
     try:
         readiness_deadline_s = time.monotonic() + 30.0
         position_health = _wait_ekf_position_ready(
@@ -863,6 +1030,78 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         assert positive_auto_start.progress_observed_at_s is not None
         assert positive_auto_start.progress_sequence is not None
 
+        pause_resume_link = _EvidencePauseResumeLink(
+            PymavlinkNativePauseResumeLink(
+                sik_connection,
+                TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+            ),
+            execution_trace,
+        )
+        pause_resume_gateway = NativePauseResumeGateway(pause_resume_link, clock=clock)
+        for action_sequence, action_name in ((3, "Proceed"), (4, "Hold approach")):
+            active_context = _wait_for_mission_state(
+                service,
+                sik,
+                sik_connection,
+                execution_trace,
+                cancellation,
+                expected_state=MAV_MISSION_STATE_ACTIVE,
+                sequence=action_sequence,
+            )
+            pause_resume_service.synchronize_context(
+                active_context,
+                positive_auto_start,
+                now_s=clock.now(),
+                command_channel_idle=True,
+            )
+            assert pause_resume_service.snapshot.pause_available
+            paused = pause_resume_service.request_native_pause(
+                pause_resume_gateway,
+                active_context,
+                positive_auto_start,
+                now_s=clock.now(),
+                command_channel_idle=True,
+                cancellation=cancellation,
+            )
+            assert paused.state is NativePauseResumeState.PAUSED
+            assert paused.ack_result == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+            assert paused.progress_sequence == action_sequence
+            paused_context = _wait_for_mission_state(
+                service,
+                sik,
+                sik_connection,
+                execution_trace,
+                cancellation,
+                expected_state=MAV_MISSION_STATE_PAUSED,
+                sequence=action_sequence,
+            )
+            pause_resume_service.synchronize_context(
+                paused_context,
+                positive_auto_start,
+                now_s=clock.now(),
+                command_channel_idle=True,
+            )
+            assert pause_resume_service.snapshot.resume_available
+            resumed = pause_resume_service.request_native_resume(
+                pause_resume_gateway,
+                paused_context,
+                positive_auto_start,
+                now_s=clock.now(),
+                command_channel_idle=True,
+                cancellation=cancellation,
+            )
+            assert resumed.state is NativePauseResumeState.RUNNING
+            assert resumed.ack_result == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+            assert resumed.progress_sequence == action_sequence
+            pause_resume_cycles.append(
+                {
+                    "mission_action": action_name,
+                    "sequence": action_sequence,
+                    "pause": asdict(paused),
+                    "resume": asdict(resumed),
+                }
+            )
+
         # Explicitly sever the desktop command/telemetry session after Running.
         # The app gate invalidates immediately; stock Copter remains the onboard
         # flight authority and the test reconnects only to observe later progress.
@@ -875,6 +1114,14 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
         )
         auto_start_state_after_link_loss = auto_start_service.snapshot.state
         assert auto_start_state_after_link_loss is NativeAutoStartState.LINK_LOST
+        pause_resume_service.synchronize_context(
+            service.snapshot,
+            positive_auto_start,
+            now_s=clock.now(),
+            command_channel_idle=True,
+        )
+        pause_resume_state_after_link_loss = pause_resume_service.snapshot.state
+        assert pause_resume_state_after_link_loss is NativePauseResumeState.LINK_LOST
         link_interrupted_at_s = time.monotonic()
         sik_link.close()
         sik_connection = _connect(sitl_endpoint)
@@ -911,7 +1158,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             }
         )
     finally:
-        # Preserve native pre-arm/arm/AUTO evidence even when the test fails closed.
+        # Preserve native pre-arm/arm/AUTO/Pause/Resume evidence on fail-closed exits.
         _write_execution_trace(execution_trace_path, execution_trace)
     final_sequence = len(expected.items) - 1
     assert expected.items[final_sequence].command == int(mavutil.mavlink.MAV_CMD_NAV_LAND)
@@ -1016,7 +1263,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     _write_execution_trace(execution_trace_path, execution_trace)
 
     evidence = {
-        "schema": "skywriter-task-102-connected-sitl-v1",
+        "schema": "skywriter-task-103-connected-sitl-v1",
         "status": "passed",
         "target": {
             "system_id": sitl_target_identity.system_id,
@@ -1038,12 +1285,15 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "stimulus_order": [
                 "normal non-forced arm",
                 "production native AUTO mission start",
+                "production native Pause/Resume during Proceed",
+                "production native Pause/Resume during Hold approach",
                 "desktop link interruption",
                 "observation-only reconnect",
             ],
             "prearm_health": asdict(prearm_health),
             "ekf_position_health": asdict(position_health),
             "auto_start_boundary": "production Task 102 service/gateway/link",
+            "pause_resume_boundary": "production Task 103 service/gateway/link",
             "final_land_sequence": final_sequence,
             "last_required_reached_sequence": sequence_before_land,
             "observed_sequences": sorted(reached),
@@ -1055,6 +1305,11 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
                 None
                 if auto_start_state_after_link_loss is None
                 else auto_start_state_after_link_loss.value
+            ),
+            "pause_resume_state_after_link_loss": (
+                None
+                if pause_resume_state_after_link_loss is None
+                else pause_resume_state_after_link_loss.value
             ),
             "progress_sequence_confirming_running": start_progress_sequence,
             "later_progress_after_link_interruption": progress_after_link_interruption,
@@ -1076,6 +1331,16 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "desktop_link_interruption_proved_native_execution": (
                 progress_after_link_interruption and landed_disarmed
             ),
+        },
+        "native_pause_resume": {
+            "positive_cycles": pause_resume_cycles,
+            "exact_command": 193,
+            "pause_parameters": [0, 0, 0, 0, 0, 0, 0],
+            "resume_parameters": [1, 0, 0, 0, 0, 0, 0],
+            "ack_is_state_proof": False,
+            "pinned_mission_state_required": True,
+            "multiple_mission_action_types": ["Proceed", "Hold approach"],
+            "generic_command_or_mode_exposed": False,
         },
         "normal_arm": {
             "positive_application_request": (
@@ -1113,6 +1378,7 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "production_prearm_command_only": True,
             "production_normal_arm_only": True,
             "production_native_auto_start_only": True,
+            "production_native_pause_resume_only": True,
             "production_generic_mode_or_command_api": False,
             "guided_setpoint_streaming": False,
             "prearm_bypass": False,

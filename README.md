@@ -92,6 +92,13 @@ The third serial compartment is the fixed native AUTO mission start documented i
 requires both a later armed AUTO heartbeat and in-bounds native mission progress after
 the exact command-300 acknowledgment before showing Running.
 
+The fourth serial compartment is the state-aware native Pause/Resume path documented in
+[`docs/pause-resume.md`](docs/pause-resume.md). Its two dedicated command-193 actions use
+fixed selectors, and neither Paused nor resumed Running is shown without later pinned
+`MISSION_CURRENT` state telemetry from the same verified mission and target. After an
+accepted ACK, one fixed read-only request obtains that state without exposing a generic
+command surface.
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.
@@ -152,6 +159,7 @@ The documents in this starter package are the implementation source of truth. Be
 - [`docs/native-prearm.md`](docs/native-prearm.md): exact native pre-arm request, review gate, and SITL evidence boundary
 - [`docs/normal-arm.md`](docs/normal-arm.md): gated normal Arm, exact ACK/telemetry proof, and stock-SITL evidence
 - [`docs/auto-start.md`](docs/auto-start.md): fixed native AUTO start, Running proof, and link-interruption evidence
+- [`docs/pause-resume.md`](docs/pause-resume.md): native Pause/Resume gates, exact state proof, and SITL evidence
 - [`docs/development-plan.md`](docs/development-plan.md): phases, branch/PR workflow, gates, and validation ladder
 - [`AGENTS.md`](AGENTS.md): binding repository rules for Codex and human contributors
 - [`codex-tasks/README.md`](codex-tasks/README.md): launch order and bounded handoffs
