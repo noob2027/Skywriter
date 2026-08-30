@@ -178,6 +178,10 @@ def _request_execution_telemetry(connection: Any, trace: list[dict[str, object]]
             "COMMAND_LONG_REQUEST_GLOBAL_POSITION_INT",
             int(mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT),
         ),
+        (
+            "COMMAND_LONG_REQUEST_MISSION_CURRENT",
+            int(mavutil.mavlink.MAVLINK_MSG_ID_MISSION_CURRENT),
+        ),
     ):
         trace.append(
             {
