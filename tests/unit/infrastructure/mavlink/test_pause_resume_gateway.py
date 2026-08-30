@@ -17,6 +17,8 @@ from skywriter.application.telemetry import TelemetryLinkKind
 from skywriter.compatibility.arducopter_4_6_3 import VehicleIdentity
 from skywriter.infrastructure.mavlink.connection import (
     MAV_CMD_DO_PAUSE_CONTINUE,
+    MAV_CMD_REQUEST_MESSAGE,
+    MAVLINK_MSG_ID_MISSION_CURRENT,
     IncomingMessage,
     MavlinkAddress,
     PymavlinkNativePauseResumeLink,
@@ -60,6 +62,7 @@ class FakePauseResumeLink:
         self.events = events
         self.connected = True
         self.sent: list[tuple[NativePauseResumeAction, MavlinkAddress]] = []
+        self.state_requests: list[MavlinkAddress] = []
 
     def is_connected(self) -> bool:
         return self.connected
@@ -85,6 +88,11 @@ class FakePauseResumeLink:
         if not self.connected:
             raise ConnectionError("closed")
         self.sent.append((NativePauseResumeAction.RESUME, target))
+
+    def request_native_mission_state(self, target: MavlinkAddress) -> None:
+        if not self.connected:
+            raise ConnectionError("closed")
+        self.state_requests.append(target)
 
 
 def target(*, observed_at_s: float = 100.0, base_mode: int = 128) -> ConnectedTarget:
@@ -202,6 +210,7 @@ def test_accepted_ack_requires_later_exact_mission_state(
     assert result.progress_sequence == 2
     assert result.state_observed_at_s is not None
     assert link.sent == [(action, TARGET)]
+    assert link.state_requests == [TARGET]
 
 
 def test_pre_ack_paused_message_cannot_prove_pause() -> None:
@@ -394,12 +403,13 @@ def test_closed_gateway_and_link_expose_only_dedicated_pause_resume_surface() ->
         "is_connected",
         "local_address",
         "receive",
+        "request_native_mission_state",
         "send_native_pause",
         "send_native_resume",
     }
 
 
-def test_concrete_link_emits_only_command_193_with_fixed_selectors() -> None:
+def test_concrete_link_emits_fixed_actions_and_read_only_state_request() -> None:
     sent: list[tuple[object, ...]] = []
 
     class Mav:
@@ -418,9 +428,11 @@ def test_concrete_link_emits_only_command_193_with_fixed_selectors() -> None:
     )
     link.send_native_pause(TARGET)
     link.send_native_resume(TARGET)
+    link.request_native_mission_state(TARGET)
     assert sent == [
         (1, 1, MAV_CMD_DO_PAUSE_CONTINUE, 0, 0, 0, 0, 0, 0, 0, 0),
         (1, 1, MAV_CMD_DO_PAUSE_CONTINUE, 0, 1, 0, 0, 0, 0, 0, 0),
+        (1, 1, MAV_CMD_REQUEST_MESSAGE, 0, MAVLINK_MSG_ID_MISSION_CURRENT, 0, 0, 0, 0, 0, 0),
     ]
     public = {
         name.lower() for name in dir(PymavlinkNativePauseResumeLink) if not name.startswith("_")
@@ -429,6 +441,7 @@ def test_concrete_link_emits_only_command_193_with_fixed_selectors() -> None:
         "close",
         "is_connected",
         "receive",
+        "request_native_mission_state",
         "send_native_pause",
         "send_native_resume",
     }

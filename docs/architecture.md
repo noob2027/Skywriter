@@ -224,9 +224,10 @@ stock flight controller continues according to its configured onboard behavior.
 
 Task 103 adds a separate `NativePauseResumeService` and `NativePauseResumeGateway`.
 The application service consumes Task 102's exact Running authorization plus current
-same-target mission-state telemetry. Its two gateway/link methods expose only fixed
-command-193 Pause (`param1=0`) and Resume (`param1=1`) actions with reserved zeros; no
-command, mode, coordinate, or parameter array is caller supplied.
+same-target mission-state telemetry. Its two gateway action methods expose only fixed
+command-193 Pause (`param1=0`) and Resume (`param1=1`) actions with reserved zeros. The
+link adds one fixed read-only request for message 42 after acceptance; no command, mode,
+coordinate, or parameter array is caller supplied.
 
 An accepted command-193 ACK is not Paused or resumed Running proof. Pause requires a
 later in-bounds `MISSION_CURRENT` with the pinned Paused state, while Resume requires a
@@ -296,7 +297,8 @@ and cannot present Running until post-ACK AUTO and mission-progress telemetry bo
 
 The fourth implemented compartment exposes only `request_native_pause()` and
 `request_native_resume()`. Both send command 193 through fixed dedicated link methods,
-and require later pinned mission-state telemetry before presenting Paused or Running.
+then use only a fixed read-only message-42 request to obtain the later pinned mission-state
+telemetry required before presenting Paused or Running.
 
 ## 8. Map isolation
 

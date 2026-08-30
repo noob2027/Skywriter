@@ -140,8 +140,9 @@ For Pause and Resume, an accepted acknowledgment is likewise not the resulting s
 The UI may present **Paused** or resumed **Running** only after later fresh selected-target
 `MISSION_CURRENT` telemetry reports the pinned Paused or Active mission state inside the
 exact verified mission. Resume remains unavailable until Paused has been positively
-observed. Landing, completion, disarm, mode/target change, or link loss disables both
-controls without a substitute hold or navigation stream.
+observed. A fixed read-only request for `MISSION_CURRENT` may obtain this post-ACK proof;
+it cannot select a mode or steer. Landing, completion, disarm, mode/target change, or link
+loss disables both controls without a substitute hold or navigation stream.
 
 ## 5. Structural validation versus operational policy
 

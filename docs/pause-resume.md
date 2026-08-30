@@ -73,6 +73,11 @@ An accepted ACK opens a bounded observation phase:
 - later heartbeats must remain armed and in AUTO; later Land, landing, on-ground,
   Complete, disarm, wrong sequence/count, or a different mode fails closed.
 
+Because pinned Copter does not publish a fresh `MISSION_CURRENT` merely because command
+193 changed its pause state, the dedicated transport requests message 42 read-only after
+acceptance. This is fixed `MAV_CMD_REQUEST_MESSAGE` command 512 with all reserved fields
+zero; it cannot select a mode, rewrite a mission, or steer the vehicle.
+
 Pre-ACK mission-state telemetry cannot satisfy either proof. An ACK without the expected
 later state remains explicitly uncertain. Losing the desktop link after either confirmed
 state disables the controls without sending fallback navigation.

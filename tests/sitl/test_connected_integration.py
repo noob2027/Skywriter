@@ -439,6 +439,23 @@ class _EvidencePauseResumeLink(NativePauseResumeLink):
         self._record_command(target, continue_mission=True)
         self._delegate.send_native_resume(target)
 
+    def request_native_mission_state(self, target: MavlinkAddress) -> None:
+        from pymavlink import mavutil
+
+        self._trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "COMMAND_LONG_REQUEST_MISSION_CURRENT",
+                "fields": {
+                    "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+                    "requested_message_id": int(mavutil.mavlink.MAVLINK_MSG_ID_MISSION_CURRENT),
+                    "target_component": target.component_id,
+                    "target_system": target.system_id,
+                },
+            }
+        )
+        self._delegate.request_native_mission_state(target)
+
     def _record_command(
         self,
         target: MavlinkAddress,

@@ -20,10 +20,12 @@ MAV_MODE_FLAG_SAFETY_ARMED = 128
 MAV_MISSION_ACCEPTED = 0
 MAV_MISSION_OPERATION_CANCELLED = 15
 MAV_MISSION_TYPE_MISSION = 0
+MAV_CMD_REQUEST_MESSAGE = 512
 MAV_CMD_DO_PAUSE_CONTINUE = 193
 MAV_CMD_MISSION_START = 300
 MAV_CMD_COMPONENT_ARM_DISARM = 400
 MAV_CMD_RUN_PREARM_CHECKS = 401
+MAVLINK_MSG_ID_MISSION_CURRENT = 42
 
 
 class TransportKind(StrEnum):
@@ -698,6 +700,30 @@ class PymavlinkNativePauseResumeLink:
         """Send command 193 with the pinned Resume selector and reserved zeros."""
 
         self._send_pause_continue(target, continue_mission=True)
+
+    def request_native_mission_state(self, target: MavlinkAddress) -> None:
+        """Request the fixed read-only MISSION_CURRENT state observation."""
+
+        self._require_connected()
+        try:
+            self._connection.mav.command_long_send(
+                target.system_id,
+                target.component_id,
+                MAV_CMD_REQUEST_MESSAGE,
+                0,
+                MAVLINK_MSG_ID_MISSION_CURRENT,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            )
+        except (EOFError, OSError) as error:
+            self._connected = False
+            raise ConnectionError(
+                "MAVLink connection closed while requesting mission state"
+            ) from error
 
     def _send_pause_continue(
         self,

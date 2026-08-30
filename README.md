@@ -95,7 +95,9 @@ the exact command-300 acknowledgment before showing Running.
 The fourth serial compartment is the state-aware native Pause/Resume path documented in
 [`docs/pause-resume.md`](docs/pause-resume.md). Its two dedicated command-193 actions use
 fixed selectors, and neither Paused nor resumed Running is shown without later pinned
-`MISSION_CURRENT` state telemetry from the same verified mission and target.
+`MISSION_CURRENT` state telemetry from the same verified mission and target. After an
+accepted ACK, one fixed read-only request obtains that state without exposing a generic
+command surface.
 
 ## Safety invariants
 

@@ -37,7 +37,7 @@ MAV_RESULT_UNSUPPORTED = 3
 
 
 class NativePauseResumeLink(Protocol):
-    """Closed link surface for the two fixed command-193 actions."""
+    """Closed link surface for two actions and their fixed read-only state proof."""
 
     descriptor: TransportDescriptor
     local_address: MavlinkAddress
@@ -50,11 +50,14 @@ class NativePauseResumeLink(Protocol):
 
     def send_native_resume(self, target: MavlinkAddress) -> None: ...
 
+    def request_native_mission_state(self, target: MavlinkAddress) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class NativePauseResumeProtocolPolicy:
     ack_timeout_s: float = 5.0
     telemetry_timeout_s: float = 15.0
+    telemetry_request_interval_s: float = 1.0
     negative_capture_s: float = 0.75
     max_poll_s: float = 0.5
 
@@ -393,6 +396,7 @@ class NativePauseResumeGateway:
             NativePauseResumeAction.RESUME: NativePauseResumeState.RUNNING,
         }[action]
         observed_opposite = False
+        next_state_request_s = self._clock.now()
         while self._clock.now() < deadline_s:
             interrupted = self._interruption(
                 action,
@@ -406,6 +410,19 @@ class NativePauseResumeGateway:
             )
             if interrupted is not None:
                 return interrupted
+            if self._clock.now() >= next_state_request_s:
+                try:
+                    self._link.request_native_mission_state(target)
+                except ConnectionError as error:
+                    return self._result(
+                        action,
+                        NativePauseResumeState.LINK_LOST,
+                        str(error),
+                        requested_at_s,
+                        ack_result=ack_result,
+                        messages=messages,
+                    )
+                next_state_request_s = self._clock.now() + self._policy.telemetry_request_interval_s
             incoming = self._receive(action, requested_at_s, messages, ack_result=ack_result)
             if isinstance(incoming, NativePauseResumeCommandResult):
                 return incoming

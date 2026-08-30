@@ -85,7 +85,7 @@ def test_task100_through_103_command_long_emissions_remain_exact_and_confined() 
         if fragment in path.read_text(encoding="utf-8")
     }
 
-    assert users == {Path("infrastructure/mavlink/connection.py"): 4}
+    assert users == {Path("infrastructure/mavlink/connection.py"): 5}
     connection_source = (SOURCE_ROOT / "infrastructure/mavlink/connection.py").read_text(
         encoding="utf-8"
     )
@@ -93,11 +93,14 @@ def test_task100_through_103_command_long_emissions_remain_exact_and_confined() 
     assert "MAV_CMD_COMPONENT_ARM_DISARM = 400" in connection_source
     assert "MAV_CMD_MISSION_START = 300" in connection_source
     assert "MAV_CMD_DO_PAUSE_CONTINUE = 193" in connection_source
+    assert "MAV_CMD_REQUEST_MESSAGE = 512" in connection_source
+    assert "MAVLINK_MSG_ID_MISSION_CURRENT = 42" in connection_source
     assert "def send_prearm_checks" in connection_source
     assert "def send_normal_arm" in connection_source
     assert "def send_native_auto_start" in connection_source
     assert "def send_native_pause" in connection_source
     assert "def send_native_resume" in connection_source
+    assert "def request_native_mission_state" in connection_source
     assert "def send_command" not in connection_source
     assert "2989" not in connection_source
     assert "21196" not in connection_source
