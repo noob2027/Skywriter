@@ -1,4 +1,4 @@
-"""Flight telemetry plus the dedicated Task 102–103 native flight intents."""
+"""Flight telemetry plus the dedicated Task 102–104 native flight intents."""
 
 from __future__ import annotations
 
@@ -18,6 +18,10 @@ from PySide6.QtWidgets import (
 )
 
 from skywriter.application.auto_start import NativeAutoStartSnapshot, NativeAutoStartState
+from skywriter.application.land_here_now import (
+    NativeLandHereNowSnapshot,
+    NativeLandHereNowState,
+)
 from skywriter.application.pause_resume import (
     NativePauseResumeSnapshot,
     NativePauseResumeState,
@@ -30,6 +34,7 @@ from skywriter.application.telemetry import (
     build_map_layers,
 )
 from skywriter.ui.auto_start_worker import NativeAutoStartWorkerHandoff
+from skywriter.ui.land_here_now_worker import NativeLandHereNowWorkerHandoff
 from skywriter.ui.pause_resume_worker import NativePauseResumeWorkerHandoff
 from skywriter.ui.telemetry import (
     NativeMessagesList,
@@ -54,7 +59,29 @@ class NativeResumeRequested:
     pass
 
 
-FlightIntent: TypeAlias = NativeAutoStartRequested | NativePauseRequested | NativeResumeRequested
+@dataclass(frozen=True, slots=True)
+class LandHereNowConfirmationRequested:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class LandHereNowConfirmed:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class LandHereNowCancelled:
+    pass
+
+
+FlightIntent: TypeAlias = (
+    NativeAutoStartRequested
+    | NativePauseRequested
+    | NativeResumeRequested
+    | LandHereNowConfirmationRequested
+    | LandHereNowConfirmed
+    | LandHereNowCancelled
+)
 
 
 class FlightTelemetryWidget(QWidget):
@@ -68,6 +95,10 @@ class FlightTelemetryWidget(QWidget):
         self._auto_start_worker: NativeAutoStartWorkerHandoff | None = None
         self._pause_resume = NativePauseResumeSnapshot()
         self._pause_resume_worker: NativePauseResumeWorkerHandoff | None = None
+        self._land_here_now = NativeLandHereNowSnapshot()
+        self._land_here_now_worker: NativeLandHereNowWorkerHandoff | None = None
+        self._begin_land_confirmation: Callable[[], NativeLandHereNowSnapshot] | None = None
+        self._cancel_land_confirmation: Callable[[], NativeLandHereNowSnapshot] | None = None
         self._telemetry_native_messages: tuple[tuple[int, str], ...] = ()
         self.setObjectName("flightTelemetryView")
         root = QVBoxLayout(self)
@@ -76,8 +107,8 @@ class FlightTelemetryWidget(QWidget):
         heading.setStyleSheet("font-size: 24px; font-weight: 700; color: #173f3d;")
         disclaimer = QLabel(
             "TELEMETRY IS READ-ONLY EXCEPT FOR THE DEDICATED CONTROLS BELOW. Start, Pause, "
-            "and Resume are independently gated and acknowledged; SKYWriter never streams "
-            "substitute navigation."
+            "Resume, and Land Here Now are independently gated and acknowledged; SKYWriter "
+            "never streams substitute navigation."
         )
         disclaimer.setObjectName("flightTelemetryDisclaimer")
         disclaimer.setWordWrap(True)
@@ -157,6 +188,62 @@ class FlightTelemetryWidget(QWidget):
         pause_layout.addLayout(control_grid)
         root.addWidget(pause_panel)
 
+        land_panel = QFrame()
+        land_panel.setObjectName("nativeLandHereNowPanel")
+        land_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        land_panel.setStyleSheet(
+            "QFrame#nativeLandHereNowPanel { border: 2px solid #a52222; background: #fff7f7; }"
+        )
+        land_layout = QVBoxLayout(land_panel)
+        land_heading = QLabel("Land Here Now — current aircraft location")
+        land_heading.setObjectName("nativeLandHereNowHeading")
+        land_heading.setStyleSheet("font-size: 16px; font-weight: 700; color: #7b1010;")
+        land_warning = QLabel(
+            "THIS IS NOT THE PLANNED CLICKED LAND POINT. Land Here Now abandons all remaining "
+            "mission progress and asks ArduCopter to land at the aircraft's current location."
+        )
+        land_warning.setObjectName("nativeLandHereNowWarning")
+        land_warning.setWordWrap(True)
+        land_warning.setStyleSheet(
+            "padding: 10px; background: #ffd9d9; color: #710e0e; font-weight: 800;"
+        )
+        self._land_here_now_status = QLabel()
+        self._land_here_now_status.setObjectName("nativeLandHereNowStatus")
+        self._land_here_now_status.setWordWrap(True)
+        self._land_here_now_detail = QLabel()
+        self._land_here_now_detail.setObjectName("nativeLandHereNowDetail")
+        self._land_here_now_detail.setWordWrap(True)
+        self._land_here_now_button = QPushButton("Land Here Now…")
+        self._land_here_now_button.setObjectName("landHereNowButton")
+        self._land_here_now_button.clicked.connect(self._request_land_confirmation)
+        self._land_confirmation = QWidget()
+        self._land_confirmation.setObjectName("landHereNowConfirmation")
+        confirmation_layout = QVBoxLayout(self._land_confirmation)
+        confirmation_warning = QLabel(
+            "CONFIRM: abandon the remaining mission and land at the aircraft's current location."
+        )
+        confirmation_warning.setObjectName("landHereNowConfirmationWarning")
+        confirmation_warning.setWordWrap(True)
+        confirmation_warning.setStyleSheet("color: #710e0e; font-weight: 800;")
+        confirmation_buttons = QGridLayout()
+        self._land_confirm_button = QPushButton("Confirm: abandon mission and land here now")
+        self._land_confirm_button.setObjectName("landHereNowConfirmButton")
+        self._land_confirm_button.clicked.connect(self._confirm_land_here_now)
+        self._land_cancel_button = QPushButton("Cancel")
+        self._land_cancel_button.setObjectName("landHereNowCancelButton")
+        self._land_cancel_button.clicked.connect(self._cancel_land_here_now)
+        confirmation_buttons.addWidget(self._land_confirm_button, 0, 0)
+        confirmation_buttons.addWidget(self._land_cancel_button, 0, 1)
+        confirmation_layout.addWidget(confirmation_warning)
+        confirmation_layout.addLayout(confirmation_buttons)
+        land_layout.addWidget(land_heading)
+        land_layout.addWidget(land_warning)
+        land_layout.addWidget(self._land_here_now_status)
+        land_layout.addWidget(self._land_here_now_detail)
+        land_layout.addWidget(self._land_here_now_button)
+        land_layout.addWidget(self._land_confirmation)
+        root.addWidget(land_panel)
+
         grid = QGridLayout()
         self._connection = TelemetryCard("Vehicle / link", "flightConnection")
         self._state = TelemetryCard("Mode / armed state", "flightVehicleState")
@@ -193,6 +280,7 @@ class FlightTelemetryWidget(QWidget):
         root.addWidget(splitter, 1)
         self.render_auto_start(self._auto_start)
         self.render_pause_resume(self._pause_resume)
+        self.render_land_here_now(self._land_here_now)
         self.render_snapshot(None, now_s=0.0)
 
     def _emit_auto_start_request(self) -> None:
@@ -244,6 +332,42 @@ class FlightTelemetryWidget(QWidget):
         self._pause_resume_worker = worker
         return worker
 
+    def _request_land_confirmation(self) -> None:
+        self._set_land_controls_enabled(False)
+        self.intent_emitted.emit(LandHereNowConfirmationRequested())
+        if self._begin_land_confirmation is not None:
+            self.render_land_here_now(self._begin_land_confirmation())
+
+    def _confirm_land_here_now(self) -> None:
+        self._set_land_controls_enabled(False)
+        self.intent_emitted.emit(LandHereNowConfirmed())
+        if self._land_here_now_worker is not None:
+            self._land_here_now_worker.submit()
+
+    def _cancel_land_here_now(self) -> None:
+        self._set_land_controls_enabled(False)
+        self.intent_emitted.emit(LandHereNowCancelled())
+        if self._cancel_land_confirmation is not None:
+            self.render_land_here_now(self._cancel_land_confirmation())
+
+    def bind_land_here_now_operations(
+        self,
+        begin_confirmation: Callable[[], NativeLandHereNowSnapshot],
+        cancel_confirmation: Callable[[], NativeLandHereNowSnapshot],
+        confirm_operation: Callable[[], NativeLandHereNowSnapshot],
+    ) -> NativeLandHereNowWorkerHandoff:
+        """Bind synchronous confirmation state and one blocking confirmed request."""
+
+        if self._land_here_now_worker is not None:
+            raise RuntimeError("Land Here Now operations are already bound")
+        self._begin_land_confirmation = begin_confirmation
+        self._cancel_land_confirmation = cancel_confirmation
+        worker = NativeLandHereNowWorkerHandoff(confirm_operation)
+        worker.snapshot_ready.connect(self._render_worker_land_here_now_snapshot)
+        worker.operation_failed.connect(self._render_land_here_now_worker_failure)
+        self._land_here_now_worker = worker
+        return worker
+
     def _render_worker_auto_start_snapshot(self, snapshot: object) -> None:
         if isinstance(snapshot, NativeAutoStartSnapshot):
             self.render_auto_start(snapshot)
@@ -262,6 +386,15 @@ class FlightTelemetryWidget(QWidget):
         self._pause_resume_detail.setText(detail)
         self._pause_button.setEnabled(False)
         self._resume_button.setEnabled(False)
+
+    def _render_worker_land_here_now_snapshot(self, snapshot: object) -> None:
+        if isinstance(snapshot, NativeLandHereNowSnapshot):
+            self.render_land_here_now(snapshot)
+
+    def _render_land_here_now_worker_failure(self, detail: str) -> None:
+        self._land_here_now_status.setText("Worker failed — onboard state uncertain")
+        self._land_here_now_detail.setText(detail)
+        self._set_land_controls_enabled(False)
 
     @property
     def auto_start_snapshot(self) -> NativeAutoStartSnapshot:
@@ -303,6 +436,32 @@ class FlightTelemetryWidget(QWidget):
         self._pause_button.setEnabled(snapshot.pause_available and not pending)
         self._resume_button.setEnabled(snapshot.resume_available and not pending)
         self._render_native_messages()
+
+    @property
+    def land_here_now_snapshot(self) -> NativeLandHereNowSnapshot:
+        return self._land_here_now
+
+    def render_land_here_now(self, snapshot: NativeLandHereNowSnapshot) -> None:
+        self._land_here_now = snapshot
+        self._land_here_now_status.setText(_land_here_now_state_text(snapshot.state))
+        repeated = (
+            " Repeated activation was ignored while the original request remained active."
+            if snapshot.repeated_request_ignored
+            else ""
+        )
+        self._land_here_now_detail.setText(f"{snapshot.detail}{repeated}")
+        self._land_confirmation.setVisible(
+            snapshot.state is NativeLandHereNowState.CONFIRMATION_REQUIRED
+        )
+        self._land_here_now_button.setEnabled(snapshot.request_available)
+        self._land_confirm_button.setEnabled(snapshot.confirm_available)
+        self._land_cancel_button.setEnabled(snapshot.cancel_available)
+        self._render_native_messages()
+
+    def _set_land_controls_enabled(self, enabled: bool) -> None:
+        self._land_here_now_button.setEnabled(enabled)
+        self._land_confirm_button.setEnabled(enabled)
+        self._land_cancel_button.setEnabled(enabled)
 
     @property
     def map_layers_widget(self) -> TelemetryMapLayersWidget:
@@ -392,8 +551,16 @@ class FlightTelemetryWidget(QWidget):
         pause_resume_messages = tuple(
             (message.severity, message.text) for message in self._pause_resume.native_messages
         )
+        land_here_now_messages = tuple(
+            (message.severity, message.text) for message in self._land_here_now.native_messages
+        )
         self._messages.render_messages(
-            (*self._telemetry_native_messages, *auto_start_messages, *pause_resume_messages)
+            (
+                *self._telemetry_native_messages,
+                *auto_start_messages,
+                *pause_resume_messages,
+                *land_here_now_messages,
+            )
         )
         self._messages.scrollToBottom()
 
@@ -480,4 +647,43 @@ def _pause_resume_state_text(state: NativePauseResumeState) -> str:
         NativePauseResumeState.BLOCKED_BUSY: "Command channel busy",
         NativePauseResumeState.BLOCKED_NOT_RUNNING: "Current Active mission state required",
         NativePauseResumeState.BLOCKED_NOT_PAUSED: "Positively observed Paused state required",
+    }[state]
+
+
+def _land_here_now_state_text(state: NativeLandHereNowState) -> str:
+    return {
+        NativeLandHereNowState.IDLE: "Land Here Now blocked — airborne mission evidence required",
+        NativeLandHereNowState.AVAILABLE: "Available — deliberate confirmation required",
+        NativeLandHereNowState.CONFIRMATION_REQUIRED: "Confirmation required — no command sent",
+        NativeLandHereNowState.PENDING: "Native Land pending — controls locked",
+        NativeLandHereNowState.LANDING: "Landing confirmed by ACK and native telemetry",
+        NativeLandHereNowState.LANDED: "Landed confirmed by native On Ground telemetry",
+        NativeLandHereNowState.CONFIRMATION_CANCELLED: "Confirmation cancelled — no command sent",
+        NativeLandHereNowState.REJECTED: "Native Land rejected by ArduCopter",
+        NativeLandHereNowState.UNSUPPORTED: "Native Land unsupported",
+        NativeLandHereNowState.TIMED_OUT: "Acknowledgment timed out — state uncertain",
+        NativeLandHereNowState.CANCELLED: "Request cancelled — state uncertain",
+        NativeLandHereNowState.WRONG_TARGET: "Wrong-target acknowledgment — blocked",
+        NativeLandHereNowState.WRONG_ACK: "Unrelated or misaddressed acknowledgment — blocked",
+        NativeLandHereNowState.STALE_LINK: "SiK telemetry stale — state uncertain",
+        NativeLandHereNowState.LINK_LOST: "SiK link lost — onboard behavior remains native",
+        NativeLandHereNowState.ACKNOWLEDGED_NO_LANDING_TELEMETRY: (
+            "Land acknowledged, but landing telemetry is absent — state uncertain"
+        ),
+        NativeLandHereNowState.UNEXPECTED_MODE: "Vehicle is not in expected AUTO/Land mode",
+        NativeLandHereNowState.MISSION_COMPLETED: "Mission Complete — action disabled",
+        NativeLandHereNowState.DISARMED: "Vehicle Disarmed — action disabled",
+        NativeLandHereNowState.MISSION_MISMATCH: "Mission evidence or progress mismatched",
+        NativeLandHereNowState.TELEMETRY_DISAGREEMENT: (
+            "Acknowledgment and landing telemetry disagree"
+        ),
+        NativeLandHereNowState.ALREADY_LANDING: "Vehicle already Landing — action disabled",
+        NativeLandHereNowState.ALREADY_LANDED: "Vehicle already Landed — action disabled",
+        NativeLandHereNowState.BLOCKED_WRONG_LINK: "SiK link required",
+        NativeLandHereNowState.BLOCKED_MISSION: "Exact current mission verification required",
+        NativeLandHereNowState.BLOCKED_AUTO_START: "Task 102 Running evidence required",
+        NativeLandHereNowState.BLOCKED_IDENTITY: "Same-target identity unresolved",
+        NativeLandHereNowState.BLOCKED_BUSY: "Command channel busy",
+        NativeLandHereNowState.BLOCKED_NOT_AIRBORNE: "Fresh In Air telemetry required",
+        NativeLandHereNowState.BLOCKED_CONFIRMATION: "Fresh deliberate confirmation required",
     }[state]

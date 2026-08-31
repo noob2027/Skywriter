@@ -99,6 +99,13 @@ fixed selectors, and neither Paused nor resumed Running is shown without later p
 accepted ACK, one fixed read-only request obtains that state without exposing a generic
 command surface.
 
+The fifth serial compartment is the deliberately confirmed native Land Here Now path
+documented in [`docs/land-here-now.md`](docs/land-here-now.md). It is visibly separate
+from the planned clicked Land point, emits only fixed command 21 with all-zero parameters,
+and requires the matching accepted ACK plus later native Land-mode and landing-state
+telemetry before showing Landing. It never substitutes RTL, Guided control, setpoints,
+disarm, or parameter changes.
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.
@@ -116,7 +123,8 @@ command surface.
 Draft -> Structurally Valid -> Compiled -> USB Uploading
       -> Upload Acknowledged -> Read Back -> Verified
       -> SiK Reconnected/Same Vehicle -> Native Preflight Review
-      -> Armed -> AUTO Running -> Paused/Running -> Landing -> Complete
+      -> Armed -> AUTO Running -> Paused/Running
+      -> Planned Land or deliberately confirmed Land Here Now -> Landing -> Complete
 ```
 
 Any mission edit invalidates compilation and verification. Any identity mismatch, readback mismatch, disconnection, timeout, negative acknowledgment, or unexpected armed state moves the application to a non-ready state. The vehicle continues under native ArduCopter behavior if the desktop application or SiK link is lost; SKYWriter does not stream substitute navigation setpoints.
@@ -160,6 +168,7 @@ The documents in this starter package are the implementation source of truth. Be
 - [`docs/normal-arm.md`](docs/normal-arm.md): gated normal Arm, exact ACK/telemetry proof, and stock-SITL evidence
 - [`docs/auto-start.md`](docs/auto-start.md): fixed native AUTO start, Running proof, and link-interruption evidence
 - [`docs/pause-resume.md`](docs/pause-resume.md): native Pause/Resume gates, exact state proof, and SITL evidence
+- [`docs/land-here-now.md`](docs/land-here-now.md): deliberate native landing-at-current-location gate, confirmation, proof, and SITL evidence
 - [`docs/development-plan.md`](docs/development-plan.md): phases, branch/PR workflow, gates, and validation ladder
 - [`AGENTS.md`](AGENTS.md): binding repository rules for Codex and human contributors
 - [`codex-tasks/README.md`](codex-tasks/README.md): launch order and bounded handoffs
