@@ -148,6 +148,9 @@ def test_telemetry_stays_read_only_around_only_approved_serial_actions() -> None
         "nativeAutoStartButton",
         "nativePauseButton",
         "nativeResumeButton",
+        "landHereNowButton",
+        "landHereNowConfirmButton",
+        "landHereNowCancelButton",
     ]
     preflight_disclaimer = preflight.findChild(QLabel, "preflightTelemetryDisclaimer")
     flight_disclaimer = flight.findChild(QLabel, "flightTelemetryDisclaimer")

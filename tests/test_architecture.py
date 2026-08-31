@@ -77,7 +77,7 @@ def test_source_has_no_deferred_vehicle_or_parameter_apis() -> None:
     assert not any(fragment in source for fragment in deferred_api_fragments)
 
 
-def test_task100_through_103_command_long_emissions_remain_exact_and_confined() -> None:
+def test_task100_through_104_command_long_emissions_remain_exact_and_confined() -> None:
     fragment = "command_" + "long_send"
     users = {
         path.relative_to(SOURCE_ROOT): path.read_text(encoding="utf-8").count(fragment)
@@ -85,7 +85,7 @@ def test_task100_through_103_command_long_emissions_remain_exact_and_confined() 
         if fragment in path.read_text(encoding="utf-8")
     }
 
-    assert users == {Path("infrastructure/mavlink/connection.py"): 5}
+    assert users == {Path("infrastructure/mavlink/connection.py"): 7}
     connection_source = (SOURCE_ROOT / "infrastructure/mavlink/connection.py").read_text(
         encoding="utf-8"
     )
@@ -95,18 +95,22 @@ def test_task100_through_103_command_long_emissions_remain_exact_and_confined() 
     assert "MAV_CMD_DO_PAUSE_CONTINUE = 193" in connection_source
     assert "MAV_CMD_REQUEST_MESSAGE = 512" in connection_source
     assert "MAVLINK_MSG_ID_MISSION_CURRENT = 42" in connection_source
+    assert "MAV_CMD_NAV_LAND = 21" in connection_source
+    assert "MAVLINK_MSG_ID_EXTENDED_SYS_STATE = 245" in connection_source
     assert "def send_prearm_checks" in connection_source
     assert "def send_normal_arm" in connection_source
     assert "def send_native_auto_start" in connection_source
     assert "def send_native_pause" in connection_source
     assert "def send_native_resume" in connection_source
     assert "def request_native_mission_state" in connection_source
+    assert "def send_native_land_here_now" in connection_source
+    assert "def request_native_landing_state" in connection_source
     assert "def send_command" not in connection_source
     assert "2989" not in connection_source
     assert "21196" not in connection_source
 
 
-def test_task103_adds_no_generic_or_later_vehicle_action_surface() -> None:
+def test_task104_adds_no_generic_or_unapproved_vehicle_action_surface() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(SOURCE_ROOT.rglob("*.py"))
     )

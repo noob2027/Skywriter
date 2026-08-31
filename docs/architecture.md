@@ -235,6 +235,21 @@ later Active state. Resume is unavailable until the application has positively o
 Paused. Mission completion, landing, disarm, non-AUTO mode, target/mission mismatch,
 stale telemetry, and link loss disable both actions without fallback control.
 
+Task 104 adds a separate `NativeLandHereNowService` and
+`NativeLandHereNowGateway`. Its application gate binds the current Task 102 Running
+authorization to the exact target, mission digest/revision, progress sequence, native
+Active/Paused state, armed AUTO heartbeat, and fresh native In Air state. The first UI
+activation creates application-owned confirmation state and emits no MAVLink. A later
+confirmation is accepted only while that complete fingerprint is unchanged.
+
+The gateway exposes one action: fixed command 21 (`MAV_CMD_NAV_LAND`) with all seven
+parameters zero. Callers cannot supply a command, coordinate, mode, or parameter array.
+After a matching accepted ACK, the gateway uses one fixed read-only request for message
+245 (`EXTENDED_SYS_STATE`). Landing requires both later Land-mode heartbeat and native
+Landing state; On Ground is terminal Landed proof. Rejection, timeout, wrong ACK/target,
+telemetry disagreement, cancellation, stale telemetry, and link loss stay explicit. No
+RTL, Guided mode, setpoint, parameter, disarm, or fallback command is sent.
+
 Readiness is derived, never toggled directly by a widget. Example predicates:
 
 ```text
@@ -299,6 +314,12 @@ The fourth implemented compartment exposes only `request_native_pause()` and
 `request_native_resume()`. Both send command 193 through fixed dedicated link methods,
 then use only a fixed read-only message-42 request to obtain the later pinned mission-state
 telemetry required before presenting Paused or Running.
+
+The fifth implemented compartment exposes only
+`request_native_land_here_now()`. The concrete link sends fixed command 21 with all
+parameters zero, then may issue only the fixed message-245 read request needed for later
+landing proof. The two-step confirmation remains in the application layer and is cleared
+when its bound flight context changes.
 
 ## 8. Map isolation
 

@@ -1,4 +1,4 @@
-"""Genuine Task 009–103 production-boundary evidence against pinned stock SITL.
+"""Genuine Task 009–104 production-boundary evidence against pinned stock SITL.
 
 Normal Arm, native AUTO start, and native Pause/Resume use dedicated production
 compartments. Only the deliberately invalid start selector used to capture stock-native
@@ -24,6 +24,7 @@ from scripts.sitl.pinned import (
     SitlEndpoint,
     SitlTargetIdentity,
     ekf_position_health_from_flags,
+    pinned_sitl_session,
     prearm_health_from_bitmaps,
 )
 from skywriter.application.arm import (
@@ -42,6 +43,12 @@ from skywriter.application.connected import (
     ConnectedMissionSnapshot,
     ConnectedTarget,
     ConnectedVerificationState,
+)
+from skywriter.application.land_here_now import (
+    MAV_LANDED_STATE_IN_AIR,
+    NativeLandHereNowService,
+    NativeLandHereNowSnapshot,
+    NativeLandHereNowState,
 )
 from skywriter.application.pause_resume import (
     MAV_MISSION_STATE_ACTIVE,
@@ -86,11 +93,16 @@ from skywriter.infrastructure.mavlink.connection import (
     NeverCancelled,
     PymavlinkMissionLink,
     PymavlinkNativeAutoStartLink,
+    PymavlinkNativeLandHereNowLink,
     PymavlinkNativePauseResumeLink,
     PymavlinkNormalArmLink,
     PymavlinkPrearmLink,
     TransportDescriptor,
     TransportKind,
+)
+from skywriter.infrastructure.mavlink.land_here_now import (
+    NativeLandHereNowGateway,
+    NativeLandHereNowLink,
 )
 from skywriter.infrastructure.mavlink.pause_resume import (
     NativePauseResumeGateway,
@@ -481,6 +493,75 @@ class _EvidencePauseResumeLink(NativePauseResumeLink):
         )
 
 
+class _EvidenceLandHereNowLink(NativeLandHereNowLink):
+    """Trace wrapper around fixed command 21 and its read-only state request."""
+
+    def __init__(
+        self,
+        delegate: PymavlinkNativeLandHereNowLink,
+        trace: list[dict[str, object]],
+    ) -> None:
+        self._delegate = delegate
+        self._trace = trace
+        self.descriptor = delegate.descriptor
+        self.local_address = delegate.local_address
+
+    def is_connected(self) -> bool:
+        return self._delegate.is_connected()
+
+    def receive(self, timeout_s: float) -> IncomingMessage | None:
+        message = self._delegate.receive(timeout_s)
+        if message is not None and message.name in {
+            "COMMAND_ACK",
+            "HEARTBEAT",
+            "EXTENDED_SYS_STATE",
+            "STATUSTEXT",
+        }:
+            self._trace.append(
+                {
+                    "elapsed_monotonic_s": time.monotonic(),
+                    "message_type": message.name,
+                    "source_system": message.source.system_id,
+                    "source_component": message.source.component_id,
+                    "fields": _json_safe(message.fields),
+                }
+            )
+        return message
+
+    def send_native_land_here_now(self, target: MavlinkAddress) -> None:
+        self._trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "COMMAND_LONG_NATIVE_LAND_HERE_NOW",
+                "fields": {
+                    "target_system": target.system_id,
+                    "target_component": target.component_id,
+                    "command": 21,
+                    "confirmation": 0,
+                    "params": [0, 0, 0, 0, 0, 0, 0],
+                },
+            }
+        )
+        self._delegate.send_native_land_here_now(target)
+
+    def request_native_landing_state(self, target: MavlinkAddress) -> None:
+        from pymavlink import mavutil
+
+        self._trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "COMMAND_LONG_LAND_HERE_NOW_REQUEST_EXTENDED_SYS_STATE",
+                "fields": {
+                    "target_system": target.system_id,
+                    "target_component": target.component_id,
+                    "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+                    "requested_message_id": int(mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE),
+                },
+            }
+        )
+        self._delegate.request_native_landing_state(target)
+
+
 def _wait_prearm_ready(
     connection: Any,
     trace: list[dict[str, object]],
@@ -728,6 +809,66 @@ def _wait_for_mission_state(
     )
 
 
+def _wait_for_land_here_now_context(
+    service: ConnectedMissionService,
+    port: ConnectedMavlinkPort,
+    connection: Any,
+    trace: list[dict[str, object]],
+    cancellation: NeverCancelled,
+    *,
+    last_sequence: int,
+    timeout_s: float = 60.0,
+) -> ConnectedMissionSnapshot:
+    """Wait for production Land Here Now's armed/AUTO/In Air/progress gate."""
+
+    deadline_s = time.monotonic() + timeout_s
+    last: dict[str, object] = {}
+    while time.monotonic() < deadline_s:
+        _request_execution_telemetry(connection, trace)
+        service.refresh_telemetry(
+            port,
+            duration_s=1.25,
+            cancellation=cancellation,
+        )
+        snapshot = service.snapshot
+        telemetry = snapshot.telemetry
+        heartbeat = None if telemetry is None else telemetry.heartbeat.value
+        progress = None if telemetry is None else telemetry.mission.value
+        extended = None if telemetry is None else telemetry.extended_state.value
+        position = None if telemetry is None else telemetry.position.value
+        last = {
+            "armed": None if heartbeat is None else heartbeat.armed,
+            "mode": None if heartbeat is None else heartbeat.mode_number,
+            "sequence": None if progress is None else progress.current_sequence,
+            "mission_state": None if progress is None else progress.mission_state,
+            "landed_state": None if extended is None else extended.landed_state,
+            "relative_altitude_m": (None if position is None else position.relative_altitude_m),
+        }
+        trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "LAND_HERE_NOW_GATE_TELEMETRY",
+                "fields": last,
+            }
+        )
+        sequence = None if progress is None else progress.current_sequence
+        if (
+            heartbeat is not None
+            and heartbeat.armed
+            and heartbeat.mode_number == 3
+            and progress is not None
+            and progress.mission_state in (MAV_MISSION_STATE_ACTIVE, MAV_MISSION_STATE_PAUSED)
+            and sequence is not None
+            and sequence < last_sequence
+            and extended is not None
+            and extended.landed_state == MAV_LANDED_STATE_IN_AIR
+            and position is not None
+            and position.relative_altitude_m >= 2.0
+        ):
+            return snapshot
+    raise AssertionError(f"Land Here Now gate did not become eligible; last={last}")
+
+
 def _reference_download(connection: Any) -> tuple[NativeMissionItem, ...]:
     from pymavlink import mavutil
 
@@ -928,6 +1069,13 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     observation_target: ConnectedTarget | None = None
     auto_start_state_after_link_loss: NativeAutoStartState | None = None
     pause_resume_state_after_link_loss: NativePauseResumeState | None = None
+    second_prearm: PrearmReadinessSnapshot | None = None
+    second_arm: NormalArmSnapshot | None = None
+    second_auto_start: NativeAutoStartSnapshot | None = None
+    land_confirmation: NativeLandHereNowSnapshot | None = None
+    land_result: NativeLandHereNowSnapshot | None = None
+    second_landed_disarmed = False
+    second_max_relative_altitude_m = 0.0
     try:
         readiness_deadline_s = time.monotonic() + 30.0
         position_health = _wait_ekf_position_ready(
@@ -1262,8 +1410,335 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     assert native_auto_start_rejection == int(mavutil.mavlink.MAV_RESULT_DENIED)
     _write_execution_trace(execution_trace_path, execution_trace)
 
+    # Task 104 adds a separate safe sortie in a second verified stock process. A fresh
+    # process is required because pinned Copter intentionally remains in unarmable AUTO
+    # after the first native Land completion. The second sortie still crosses production
+    # USB/SiK, pre-arm, normal Arm, and AUTO boundaries; no mode command or parameter write
+    # is introduced to reset flight state.
+    service.disconnect()
+    sik_link.close()
+    second_base_port = int(os.environ["SKYWRITER_SITL_BASE_PORT"]) + 20
+    second_session = pinned_sitl_session(
+        Path(os.environ["SKYWRITER_SITL_BINARY"]),
+        Path(os.environ["SKYWRITER_SITL_STARTUP_DEFAULTS"]),
+        evidence_root / "land-here-now-sortie",
+        preferred_base_port=second_base_port,
+    )
+    second_readiness = second_session.__enter__()
+    request.addfinalizer(lambda: second_session.__exit__(None, None, None))
+    assert second_readiness.target_identity == sitl_target_identity
+    assert second_readiness.clean_mission_state.count == 0
+    sitl_endpoint = second_readiness.endpoint
+    service = ConnectedMissionService()
+    service.set_compiled(compiled, mission_revision=2)
+    second_usb_connection = _connect(sitl_endpoint)
+    second_usb_link = PymavlinkMissionLink(
+        second_usb_connection,
+        TransportDescriptor(sitl_endpoint.connection_string, TransportKind.USB),
+    )
+    request.addfinalizer(second_usb_link.close)
+    second_usb = ConnectedMavlinkPort(second_usb_link, clock=clock)
+    service.discover(second_usb, duration_s=2.5, cancellation=cancellation)
+    assert len(service.snapshot.candidates) == 1
+    second_usb_target = service.snapshot.candidates[0]
+    service.select_target(
+        second_usb_target.system_id,
+        second_usb_target.component_id,
+        now_s=clock.now(),
+    )
+    service.inspect_onboard(second_usb, cancellation=cancellation)
+    assert service.snapshot.onboard is not None
+    service.confirm_replacement(True)
+    _request_home_position(second_usb_connection)
+    service.refresh_telemetry(
+        second_usb,
+        duration_s=30.0,
+        cancellation=cancellation,
+        require_home=True,
+    )
+    service.upload_and_verify(second_usb, now_s=clock.now(), cancellation=cancellation)
+    assert service.snapshot.failure is None
+    assert service.snapshot.verification_state is ConnectedVerificationState.USB_VERIFIED
+    second_expected = service.snapshot.expected_package
+    assert isinstance(second_expected, NativeMissionPackage)
+    # Native Home is freshly authoritative on each USB upload and may refine after
+    # the first flight; the shifted logical mission remains field-for-field exact.
+    assert second_expected.items[1:] == expected.items[1:]
+    service.disconnect()
+    second_usb_link.close()
+
+    sik_connection = _connect(sitl_endpoint)
+    sik_link = PymavlinkMissionLink(
+        sik_connection,
+        TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+    )
+    request.addfinalizer(sik_link.close)
+    sik = ConnectedMavlinkPort(sik_link, clock=clock)
+    service.discover(sik, duration_s=2.5, cancellation=cancellation)
+    assert len(service.snapshot.candidates) == 1
+    second_sik_target = service.snapshot.candidates[0]
+    service.select_target(
+        second_sik_target.system_id,
+        second_sik_target.component_id,
+        now_s=clock.now(),
+    )
+    _request_home_position(sik_connection)
+    service.refresh_telemetry(
+        sik,
+        duration_s=30.0,
+        cancellation=cancellation,
+        require_home=True,
+    )
+    service.reverify_over_sik(sik, now_s=clock.now(), cancellation=cancellation)
+    assert service.snapshot.failure is None
+    second_sik_snapshot = service.snapshot
+    assert second_sik_snapshot.verification_state is ConnectedVerificationState.SIK_VERIFIED
+
+    try:
+        second_readiness_deadline_s = time.monotonic() + 30.0
+        second_position_health = _wait_ekf_position_ready(
+            sik_connection,
+            execution_trace,
+            timeout_s=max(0.0, second_readiness_deadline_s - time.monotonic()),
+        )
+        second_prearm_health = _wait_prearm_ready(
+            sik_connection,
+            execution_trace,
+            timeout_s=max(0.0, second_readiness_deadline_s - time.monotonic()),
+        )
+        assert second_position_health.ready
+        assert second_prearm_health.ready
+        _request_prearm_review_observations(sik_connection, execution_trace)
+        service.refresh_telemetry(sik, duration_s=3.0, cancellation=cancellation)
+        assert service.snapshot.selected_target is not None
+
+        second_prearm_service = PrearmReadinessService()
+        second_prearm_gateway = NativePrearmGateway(
+            _EvidencePrearmLink(
+                PymavlinkPrearmLink(
+                    sik_connection,
+                    TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+                ),
+                execution_trace,
+            ),
+            clock=clock,
+        )
+        second_prearm_service.request_prearm_checks(
+            second_prearm_gateway,
+            service.snapshot,
+            now_s=clock.now(),
+            cancellation=cancellation,
+        )
+        second_prearm = second_prearm_service.snapshot
+        assert second_prearm.request_state is PrearmRequestState.ACCEPTED
+        assert second_prearm.native_assessment is NativePrearmAssessment.HEALTHY
+        second_prearm_service.acknowledge_review(True, service.snapshot, now_s=clock.now())
+        assert second_prearm_service.application_gate_ready_at(service.snapshot, now_s=clock.now())
+
+        second_arm_gateway = NativeNormalArmGateway(
+            _EvidenceNormalArmLink(
+                PymavlinkNormalArmLink(
+                    sik_connection,
+                    TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+                ),
+                execution_trace,
+            ),
+            clock=clock,
+        )
+        second_arm_service = NormalArmService()
+        second_arm = second_arm_service.request_normal_arm(
+            second_arm_gateway,
+            service.snapshot,
+            second_prearm_service,
+            now_s=clock.now(),
+            command_channel_idle=True,
+            cancellation=cancellation,
+        )
+        assert second_arm.state is NormalArmState.ARMED
+        assert second_arm.ack_result == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+        service.refresh_telemetry(sik, duration_s=2.0, cancellation=cancellation)
+        assert service.snapshot.selected_target is not None
+        assert service.snapshot.selected_target.armed
+
+        second_auto_start_gateway = NativeAutoStartGateway(
+            _EvidenceAutoStartLink(
+                PymavlinkNativeAutoStartLink(
+                    sik_connection,
+                    TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+                ),
+                execution_trace,
+            ),
+            clock=clock,
+        )
+        second_auto_start_service = NativeAutoStartService()
+        second_auto_start = second_auto_start_service.request_native_auto_start(
+            second_auto_start_gateway,
+            service.snapshot,
+            second_arm,
+            now_s=clock.now(),
+            command_channel_idle=True,
+            cancellation=cancellation,
+        )
+        assert second_auto_start.state is NativeAutoStartState.RUNNING
+        assert second_auto_start.ack_result == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+        assert second_auto_start.authorization is not None
+
+        land_context = _wait_for_land_here_now_context(
+            service,
+            sik,
+            sik_connection,
+            execution_trace,
+            cancellation,
+            last_sequence=second_auto_start.authorization.last_sequence,
+        )
+        land_service = NativeLandHereNowService()
+        land_ready = land_service.synchronize_context(
+            land_context,
+            second_auto_start,
+            now_s=clock.now(),
+            command_channel_idle=True,
+        )
+        assert land_ready.state is NativeLandHereNowState.AVAILABLE
+        land_commands_before_confirmation = sum(
+            item["message_type"] == "COMMAND_LONG_NATIVE_LAND_HERE_NOW" for item in execution_trace
+        )
+        land_confirmation = land_service.begin_confirmation(
+            land_context,
+            second_auto_start,
+            now_s=clock.now(),
+            command_channel_idle=True,
+        )
+        assert land_confirmation.state is NativeLandHereNowState.CONFIRMATION_REQUIRED
+        assert (
+            sum(
+                item["message_type"] == "COMMAND_LONG_NATIVE_LAND_HERE_NOW"
+                for item in execution_trace
+            )
+            == land_commands_before_confirmation
+        )
+        execution_trace.append(
+            {
+                "elapsed_monotonic_s": time.monotonic(),
+                "message_type": "APPLICATION_LAND_HERE_NOW_CONFIRMED",
+                "fields": {
+                    "abandon_remaining_mission": True,
+                    "current_aircraft_location": True,
+                    "initial_activation_sent_command": False,
+                },
+            }
+        )
+        land_gateway = NativeLandHereNowGateway(
+            _EvidenceLandHereNowLink(
+                PymavlinkNativeLandHereNowLink(
+                    sik_connection,
+                    TransportDescriptor(sitl_endpoint.connection_string, TransportKind.SIK),
+                ),
+                execution_trace,
+            ),
+            clock=clock,
+        )
+        land_result = land_service.confirm_native_land_here_now(
+            land_gateway,
+            land_context,
+            second_auto_start,
+            now_s=clock.now(),
+            command_channel_idle=True,
+            cancellation=cancellation,
+        )
+        assert land_result.state is NativeLandHereNowState.LANDING
+        assert land_result.ack_result == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+        assert land_result.land_mode_observed_at_s is not None
+        assert land_result.landed_state_observed_at_s is not None
+        assert land_result.landed_state == int(mavutil.mavlink.MAV_LANDED_STATE_LANDING)
+
+        final_target = service.snapshot.selected_target
+        assert final_target is not None
+        second_landing_deadline_s = time.monotonic() + 60.0
+        while time.monotonic() < second_landing_deadline_s:
+            _request_execution_telemetry(sik_connection, execution_trace)
+            telemetry = sik.collect_telemetry(
+                final_target,
+                duration_s=2.0,
+                cancellation=cancellation,
+                require_home=False,
+            )
+            heartbeat = telemetry.heartbeat.value
+            position = telemetry.position.value
+            extended = telemetry.extended_state.value
+            if position is not None:
+                second_max_relative_altitude_m = max(
+                    second_max_relative_altitude_m,
+                    position.relative_altitude_m,
+                )
+            execution_trace.append(
+                {
+                    "elapsed_monotonic_s": time.monotonic(),
+                    "message_type": "LAND_HERE_NOW_FINAL_TELEMETRY",
+                    "fields": {
+                        "armed": None if heartbeat is None else heartbeat.armed,
+                        "mode": None if heartbeat is None else heartbeat.mode_name,
+                        "relative_altitude_m": (
+                            None if position is None else position.relative_altitude_m
+                        ),
+                        "landed_state": (None if extended is None else extended.landed_state),
+                    },
+                }
+            )
+            _write_execution_trace(execution_trace_path, execution_trace)
+            second_landed_disarmed = bool(
+                heartbeat is not None
+                and not heartbeat.armed
+                and extended is not None
+                and extended.landed_state == int(mavutil.mavlink.MAV_LANDED_STATE_ON_GROUND)
+            )
+            if second_landed_disarmed:
+                break
+        assert second_landed_disarmed, (
+            "Land Here Now sortie did not reach final disarmed On Ground telemetry"
+        )
+        assert second_max_relative_altitude_m >= 2.0
+    finally:
+        _write_execution_trace(execution_trace_path, execution_trace)
+
+    land_command_events = tuple(
+        item
+        for item in execution_trace
+        if item["message_type"] == "COMMAND_LONG_NATIVE_LAND_HERE_NOW"
+    )
+    assert len(land_command_events) == 1
+    assert land_command_events[0]["fields"] == {
+        "target_system": TARGET.system_id,
+        "target_component": TARGET.component_id,
+        "command": 21,
+        "confirmation": 0,
+        "params": [0, 0, 0, 0, 0, 0, 0],
+    }
+    land_state_requests = tuple(
+        item
+        for item in execution_trace
+        if item["message_type"] == "COMMAND_LONG_LAND_HERE_NOW_REQUEST_EXTENDED_SYS_STATE"
+    )
+    assert land_state_requests
+    assert all(
+        item["fields"]
+        == {
+            "target_system": TARGET.system_id,
+            "target_component": TARGET.component_id,
+            "command": int(mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE),
+            "requested_message_id": int(mavutil.mavlink.MAVLINK_MSG_ID_EXTENDED_SYS_STATE),
+        }
+        for item in land_state_requests
+    )
+    assert any(
+        item["message_type"] == "COMMAND_ACK"
+        and isinstance(fields := item.get("fields"), dict)
+        and fields.get("command") == int(mavutil.mavlink.MAV_CMD_NAV_LAND)
+        and fields.get("result") == int(mavutil.mavlink.MAV_RESULT_ACCEPTED)
+        for item in execution_trace
+    )
+
     evidence = {
-        "schema": "skywriter-task-103-connected-sitl-v1",
+        "schema": "skywriter-task-104-connected-sitl-v1",
         "status": "passed",
         "target": {
             "system_id": sitl_target_identity.system_id,
@@ -1313,7 +1788,36 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             ),
             "progress_sequence_confirming_running": start_progress_sequence,
             "later_progress_after_link_interruption": progress_after_link_interruption,
+            "second_sortie": {
+                "fresh_process_base_port": second_base_port,
+                "mission_setup_boundary": "production USB upload/readback verification",
+                "same_logical_mission_verified": second_expected.items[1:] == expected.items[1:],
+                "normal_non_forced_arm": True,
+                "production_native_auto_start": True,
+                "deliberate_land_here_now_confirmation": True,
+                "initial_activation_sent_command": False,
+                "max_relative_altitude_m": second_max_relative_altitude_m,
+                "final_disarmed_on_ground": second_landed_disarmed,
+            },
             "trace": execution_trace,
+        },
+        "native_land_here_now": {
+            "confirmation_snapshot": (
+                None if land_confirmation is None else asdict(land_confirmation)
+            ),
+            "positive_application_request": (None if land_result is None else asdict(land_result)),
+            "second_prearm_review": (None if second_prearm is None else asdict(second_prearm)),
+            "second_normal_arm": None if second_arm is None else asdict(second_arm),
+            "second_auto_start": (None if second_auto_start is None else asdict(second_auto_start)),
+            "exact_command": 21,
+            "parameters": [0, 0, 0, 0, 0, 0, 0],
+            "read_only_request_command": 512,
+            "read_only_requested_message": 245,
+            "ack_is_landing_proof": False,
+            "later_land_mode_required": True,
+            "later_native_landing_state_required": True,
+            "final_disarmed_on_ground": second_landed_disarmed,
+            "generic_command_mode_or_coordinate_exposed": False,
         },
         "native_auto_start": {
             "positive_application_request": (
@@ -1379,9 +1883,11 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "production_normal_arm_only": True,
             "production_native_auto_start_only": True,
             "production_native_pause_resume_only": True,
+            "production_native_land_here_now_only": True,
             "production_generic_mode_or_command_api": False,
             "guided_setpoint_streaming": False,
             "prearm_bypass": False,
+            "mid_air_disarm": False,
         },
     }
     (evidence_root / "connected-integration.json").write_text(

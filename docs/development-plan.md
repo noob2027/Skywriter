@@ -185,6 +185,31 @@ Deterministic fake-clock/fake-link tests for timeouts, retries, duplicates, reor
 
 Every action alone, mixed mission, upload/readback, execution progress, native rejection paths, link interruption, restart/reconnect, and each later approved vehicle command.
 
+### Pre-hardware compatibility-profile gate
+
+Gate D and every later supervised bench, hardware, or real-flight phase remain blocked
+until a reviewed hardware compatibility profile records all of the following without
+guessing or silently changing configuration:
+
+- exact Matek H743 board model and hardware revision;
+- exact ArduCopter firmware target (including `MatekH743` versus
+  `MatekH743-bdshot`), release/build provenance, and Git hash or exact APJ artifact;
+- flight-controller telemetry port plus read-only observed `SERIALx_PROTOCOL`,
+  `SERIALx_BAUD`, and `SERIALx_OPTIONS`;
+- exact Holybro SiK radio model, region/frequency, and rated power;
+- matching local/remote SiK firmware and read-only loaded `NETID`, `SERIAL_SPEED`,
+  `AIR_SPEED`, `ECC`, `MAVLINK`, `TXPOWER`, `MIN_FREQ`, `MAX_FREQ`, `NUM_CHANNELS`,
+  `DUTY_CYCLE`, and `LBT` where applicable; and
+- same-vehicle identity plus MAVLink system/component evidence.
+
+SKYWriter must not hardcode or write `NETID`, radio settings, or vehicle parameters.
+Mission Planner and SKYWriter must not compete for the same COM port during command
+validation unless a separately reviewed router design is approved. Software
+compatibility remains stock ArduCopter 4.6.3 at pinned commit
+`92b0cd788ec29406f26c6f9c31d5ceedbd1cc538`; an aircraft-build mismatch requires a
+separate compatibility/SITL recertification task before hardware use. Completing Task
+104 software and SITL evidence does not satisfy or bypass this gate.
+
 ### Gate D — USB props-off hardware
 
 Confirm exact vehicle/firmware identity, disarmed upload/readback, Mission Planner independent comparison, no parameter changes, and logs. Propulsion remains physically unable to produce thrust under the approved procedure.

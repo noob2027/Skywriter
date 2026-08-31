@@ -144,6 +144,17 @@ observed. A fixed read-only request for `MISSION_CURRENT` may obtain this post-A
 it cannot select a mode or steer. Landing, completion, disarm, mode/target change, or link
 loss disables both controls without a substitute hold or navigation stream.
 
+For Land Here Now, the initial activation opens a short-lived confirmation and sends no
+vehicle command. The warning must state that the operator is abandoning all remaining
+mission progress and landing at the aircraft's current location, distinctly from the
+planned clicked Land point. Confirmation is valid only while the exact same target,
+verified mission, AUTO-start authorization, progress, armed/In Air evidence, and command
+availability remain current. The UI may present **Landing** only after a matching accepted
+native Land acknowledgment and later selected-target Land-mode plus Landing-state
+telemetry. A fixed read-only request for `EXTENDED_SYS_STATE` may obtain this proof.
+Rejection, timeout, cancellation, disagreement, stale telemetry, or link loss remains an
+explicit fail-closed or uncertain result and sends no fallback command.
+
 ## 5. Structural validation versus operational policy
 
 Prototype validation prevents malformed data: missing fields, non-numeric values, invalid coordinates, non-positive speed/time/radius, illegal ordering, unknown actions, or missing Land. It intentionally does not impose maximum altitude, maximum range, maximum speed, minimum radius, maximum hold time, a geofence, terrain clearance, or aircraft-specific capability rules.
@@ -160,7 +171,7 @@ The architecture includes a `MissionPolicy` interface and typed policy findings 
 | Arm | SiK connection fresh, same target, disarmed, verified mission, readiness reviewed, native checks requested |
 | Start | armed, verified mission still current, command link fresh |
 | Pause/Resume | mission running/paused respectively, command link fresh |
-| Land Here Now | airborne/armed state appropriate, command link fresh, deliberate confirmation |
+| Land Here Now | SiK, exact verified running/paused mission and target, fresh armed/In Air telemetry, fresh unchanged deliberate confirmation, command channel idle |
 
 ArduCopter can still reject any command. These gates do not replace native checks.
 
