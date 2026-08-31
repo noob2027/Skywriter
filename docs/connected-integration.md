@@ -62,8 +62,10 @@ live Home translation, mission upload and exact readback, disconnect/restart ove
 explicitly classified SiK link, same-vehicle comparison, read-only telemetry, execution
 of Takeoff–Proceed–Hold–Circle–Land, and a protocol-independent raw reference readback.
 Task 104 keeps that complete first sortie, including Task 103 Pause/Resume and the
-desktop link interruption, then uses a second production USB/SiK lifecycle for a safe
-simulated Land Here Now sortie.
+desktop link interruption, then starts a second verified stock process for a production
+USB/SiK lifecycle and safe simulated Land Here Now sortie. The fresh process is necessary
+because pinned Copter intentionally remains in unarmable AUTO after completed native Land;
+the test does not invent a mode-reset command.
 
 Stock Copter cannot execute a mission without normal arming and native mission start.
 Task 101 routes normal Arm through its production application/gateway boundary with the
@@ -136,9 +138,10 @@ nonzero first-item selector is retained only as test-only native-denial evidence
 the production API cannot supply it. See [`auto-start.md`](auto-start.md).
 
 Task 103 preserves two production Pause/Resume cycles during different first-sortie
-mission actions before that link interruption. Task 104 then re-uploads and exactly
-verifies the same logical mission through the production USB boundary, re-verifies it on
-SiK, repeats native readiness review, normal non-forced Arm, and fixed AUTO start, and
+mission actions before that link interruption. Task 104 then starts a second wiped,
+identity-verified stock process, uploads and exactly verifies the same logical mission
+through the production USB boundary, re-verifies it on SiK, repeats native readiness
+review, normal non-forced Arm, and fixed AUTO start, and
 waits for current armed AUTO/In Air mission evidence. The initial Land Here Now activation
 sends nothing; only the deliberate confirmation emits fixed command 21 with seven zero
 parameters. A matching accepted ACK plus later Land mode and native Landing telemetry is

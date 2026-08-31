@@ -128,10 +128,12 @@ python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
 ```
 
 After Tasks 100–104, that connected test runs production native-prearm review, normal
-Arm, AUTO start, Pause/Resume, and deliberately confirmed Land Here Now. Each fresh
-process contains the preserved Task 103 first sortie plus Task 104's second sortie and
-retains raw ACK/`STATUSTEXT`, landing-state, startup, teardown, and hash-ledger evidence
-in its connected directory. No reusable harness fixture gains a command surface.
+Arm, AUTO start, Pause/Resume, and deliberately confirmed Land Here Now. Each workflow
+invocation starts one verified stock process for the preserved Task 103 sortie and a
+second verified stock process for Task 104's sortie; the latter uses the next isolated
+20-port block. Both retain raw ACK/`STATUSTEXT`, landing-state, startup, teardown, and
+hash-ledger evidence in the connected directory. No reusable harness fixture gains a
+command surface.
 
 Use a different explicit block for a concurrent run, or omit
 `SKYWRITER_SITL_BASE_PORT` to lease the first free managed block. A requested block

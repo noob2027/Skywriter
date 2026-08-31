@@ -24,6 +24,7 @@ from scripts.sitl.pinned import (
     SitlEndpoint,
     SitlTargetIdentity,
     ekf_position_health_from_flags,
+    pinned_sitl_session,
     prearm_health_from_bitmaps,
 )
 from skywriter.application.arm import (
@@ -1409,12 +1410,27 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
     assert native_auto_start_rejection == int(mavutil.mavlink.MAV_RESULT_DENIED)
     _write_execution_trace(execution_trace_path, execution_trace)
 
-    # Task 104 adds a separate safe sortie. Re-uploading the same mission through the
-    # production USB boundary resets stock Copter's completed mission state without a
-    # mode command or parameter write. The second SiK lifecycle then repeats the native
-    # pre-arm review, normal-only Arm, and fixed AUTO start before deliberate Land.
+    # Task 104 adds a separate safe sortie in a second verified stock process. A fresh
+    # process is required because pinned Copter intentionally remains in unarmable AUTO
+    # after the first native Land completion. The second sortie still crosses production
+    # USB/SiK, pre-arm, normal Arm, and AUTO boundaries; no mode command or parameter write
+    # is introduced to reset flight state.
     service.disconnect()
     sik_link.close()
+    second_base_port = int(os.environ["SKYWRITER_SITL_BASE_PORT"]) + 20
+    second_session = pinned_sitl_session(
+        Path(os.environ["SKYWRITER_SITL_BINARY"]),
+        Path(os.environ["SKYWRITER_SITL_STARTUP_DEFAULTS"]),
+        evidence_root / "land-here-now-sortie",
+        preferred_base_port=second_base_port,
+    )
+    second_readiness = second_session.__enter__()
+    request.addfinalizer(lambda: second_session.__exit__(None, None, None))
+    assert second_readiness.target_identity == sitl_target_identity
+    assert second_readiness.clean_mission_state.count == 0
+    sitl_endpoint = second_readiness.endpoint
+    service = ConnectedMissionService()
+    service.set_compiled(compiled, mission_revision=2)
     second_usb_connection = _connect(sitl_endpoint)
     second_usb_link = PymavlinkMissionLink(
         second_usb_connection,
@@ -1773,7 +1789,8 @@ def test_connected_usb_upload_sik_reconnect_execution_and_reference_readback(
             "progress_sequence_confirming_running": start_progress_sequence,
             "later_progress_after_link_interruption": progress_after_link_interruption,
             "second_sortie": {
-                "mission_reset_boundary": "production USB upload/readback verification",
+                "fresh_process_base_port": second_base_port,
+                "mission_setup_boundary": "production USB upload/readback verification",
                 "same_logical_mission_verified": second_expected.items[1:] == expected.items[1:],
                 "normal_non_forced_arm": True,
                 "production_native_auto_start": True,
