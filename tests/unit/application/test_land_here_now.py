@@ -288,13 +288,15 @@ def test_paused_auto_mission_is_eligible_but_confirmation_is_still_required() ->
         context, auto_started(context), now_s=100.2, command_channel_idle=True
     )
     confirm(service, gateway, context)
-    assert service.snapshot.state is NativeLandHereNowState.BLOCKED_CONFIRMATION
+    blocked = service.snapshot
+    assert blocked.state is NativeLandHereNowState.BLOCKED_CONFIRMATION
     assert gateway.calls == 0
     service.begin_confirmation(
         context, auto_started(context), now_s=100.2, command_channel_idle=True
     )
     confirm(service, gateway, context)
-    assert service.snapshot.state is NativeLandHereNowState.LANDING
+    landing_snapshot = service.snapshot
+    assert landing_snapshot.state is NativeLandHereNowState.LANDING
 
 
 def test_confirmation_expires_and_context_change_clears_it_without_send() -> None:

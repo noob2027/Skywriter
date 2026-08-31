@@ -68,8 +68,9 @@ That statement describes the reusable Task 006 readiness fixture. Task 009 adds 
 separate connected-integration test after readiness releases its probe connection. The
 test composes production mission/telemetry boundaries, uploads and verifies one mixed
 mission, reconnects, and executes it. Task 101 now supplies the production normal-only
-Arm boundary; AUTO remains confined to that test file because stock Copter requires it
-to execute a mission. Neither becomes a reusable harness fixture. The test uses
+Arm boundary; Tasks 102–104 supply the fixed AUTO, Pause/Resume, and confirmed Land Here
+Now production compartments required by their accepted serial work. None becomes a
+reusable harness fixture. The test uses
 an explicit read-only `MAV_CMD_REQUEST_MESSAGE(SYS_STATUS)` handshake on the live SiK
 connection and cannot send the normal arm until the returned pre-arm bitmap is present,
 enabled, and healthy. See
@@ -126,12 +127,11 @@ SKYWRITER_SITL_BASE_PORT=26200 \
 python -m pytest tests/sitl/test_connected_integration.py -q --durations=10
 ```
 
-After Tasks 100 and 101, that connected test runs the production native-prearm
-request/review and production normal Arm, requires its exact ACK plus later armed
-heartbeat, and captures a rejected normal Arm after native Land auto-disarms in AUTO.
-The workflow still launches two fresh processes and retains all raw ACK/`STATUSTEXT`,
-review, startup, teardown, and hash-ledger evidence in each connected directory. No
-reusable harness fixture gains a command surface.
+After Tasks 100–104, that connected test runs production native-prearm review, normal
+Arm, AUTO start, Pause/Resume, and deliberately confirmed Land Here Now. Each fresh
+process contains the preserved Task 103 first sortie plus Task 104's second sortie and
+retains raw ACK/`STATUSTEXT`, landing-state, startup, teardown, and hash-ledger evidence
+in its connected directory. No reusable harness fixture gains a command surface.
 
 Use a different explicit block for a concurrent run, or omit
 `SKYWRITER_SITL_BASE_PORT` to lease the first free managed block. A requested block
@@ -141,7 +141,7 @@ already leased or occupied fails closed instead of falling back silently.
 
 The CI job downloads about 7 MB on a cold artifact cache and installs the isolated
 probe dependency set. It runs one platform-independent contract suite, two fresh
-readiness smoke processes, and two fresh connected-integration processes. Exact
+readiness smoke processes, and two fresh two-sortie connected-integration processes. Exact
 observed durations and artifact sizes are recorded by each CI run and its uploaded
 `result.json` files.
 

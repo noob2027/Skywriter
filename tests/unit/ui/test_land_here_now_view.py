@@ -126,13 +126,15 @@ def test_confirmation_and_cancel_are_application_owned_and_send_no_worker_reques
     child(widget, QPushButton, "landHereNowButton").click()
     assert begin_calls == 1 and cancel_calls == 0 and confirm_calls == 0
     assert isinstance(emitted.at(0)[0], LandHereNowConfirmationRequested)
-    assert widget.land_here_now_snapshot.state is NativeLandHereNowState.CONFIRMATION_REQUIRED
+    confirming_snapshot = widget.land_here_now_snapshot
+    assert confirming_snapshot.state is NativeLandHereNowState.CONFIRMATION_REQUIRED
     assert child(widget, QWidget, "landHereNowConfirmation").isVisibleTo(widget)
     child(widget, QPushButton, "landHereNowCancelButton").click()
     assert begin_calls == 1 and cancel_calls == 1 and confirm_calls == 0
     assert not worker.busy
     assert isinstance(emitted.at(1)[0], LandHereNowCancelled)
-    assert widget.land_here_now_snapshot.state is NativeLandHereNowState.CONFIRMATION_CANCELLED
+    cancelled_snapshot = widget.land_here_now_snapshot
+    assert cancelled_snapshot.state is NativeLandHereNowState.CONFIRMATION_CANCELLED
 
 
 def test_confirm_runs_off_ui_thread_and_rejects_overlap() -> None:

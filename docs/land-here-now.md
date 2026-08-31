@@ -62,6 +62,29 @@ telemetry disagreement are separate visible outcomes. Repeated activation while 
 is ignored. None of these paths sends RTL, Guided navigation, setpoints, parameter writes,
 force arm, disarm, or a substitute control stream.
 
+## Production-widget evidence
+
+The Task 104 capture uses the real `FlightTelemetryWidget`, not a visual mock. It records
+the separate confirmation, pending, accepted Landing, native rejection, timeout, link
+loss, already Landing, already Landed, and telemetry-disagreement presentations under
+[`screenshots/task-104/`](screenshots/task-104/).
+
+## Zero-tolerance production audit
+
+The Task 104 review confirms that the compiler/domain expose no RTL command and the UI
+exposes no RTL intent or control. Read-only telemetry may still display ArduCopter's
+native RTL-family mode names, explicitly labeled as native status only; this does not
+emit a mode change. Production `command_long_send` calls remain confined to the dedicated
+MAVLink connection adapter and its closed pre-arm, normal Arm, AUTO start, Pause, Resume,
+Land Here Now, and two fixed read-only observation requests. There is no generic command
+API, force-arm magic value, arming bypass, parameter write, Guided/setpoint stream, or
+Disarm send path.
+
+Within the new compartment, the only action packet is command 21 with confirmation zero
+and seven zero parameters. The only additional packet is command 512 requesting message
+245 with every remaining parameter zero. Architecture and concrete-link tests assert
+those exact shapes and public surfaces.
+
 ## Evidence boundary
 
 Fake-link tests cover confirmation/cancel-without-send, exact packet shapes, accepted and

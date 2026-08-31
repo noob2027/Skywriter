@@ -61,6 +61,9 @@ The Ubuntu workflow runs the genuine connected test twice in fresh stock ArduCop
 live Home translation, mission upload and exact readback, disconnect/restart over an
 explicitly classified SiK link, same-vehicle comparison, read-only telemetry, execution
 of Takeoff–Proceed–Hold–Circle–Land, and a protocol-independent raw reference readback.
+Task 104 keeps that complete first sortie, including Task 103 Pause/Resume and the
+desktop link interruption, then uses a second production USB/SiK lifecycle for a safe
+simulated Land Here Now sortie.
 
 Stock Copter cannot execute a mission without normal arming and native mission start.
 Task 101 routes normal Arm through its production application/gateway boundary with the
@@ -132,6 +135,18 @@ native Land complete, demonstrating onboard execution without fallback streaming
 nonzero first-item selector is retained only as test-only native-denial evidence because
 the production API cannot supply it. See [`auto-start.md`](auto-start.md).
 
+Task 103 preserves two production Pause/Resume cycles during different first-sortie
+mission actions before that link interruption. Task 104 then re-uploads and exactly
+verifies the same logical mission through the production USB boundary, re-verifies it on
+SiK, repeats native readiness review, normal non-forced Arm, and fixed AUTO start, and
+waits for current armed AUTO/In Air mission evidence. The initial Land Here Now activation
+sends nothing; only the deliberate confirmation emits fixed command 21 with seven zero
+parameters. A matching accepted ACK plus later Land mode and native Landing telemetry is
+required before the result is Landing, and the run separately observes final disarm plus
+On Ground. Only fixed request-message 512 for `EXTENDED_SYS_STATE` 245 is added to that
+command transaction. See [`pause-resume.md`](pause-resume.md) and
+[`land-here-now.md`](land-here-now.md).
+
 ## Platform and hardware limits
 
 The official pinned SITL artifact is Linux x86_64. Windows developers can run all
@@ -140,8 +155,9 @@ stock-SITL execution occurs on the approved Ubuntu GitHub runner unless an equiv
 Linux environment is installed. SITL is evidence infrastructure, never a runtime
 dependency.
 
-No real-hardware claim is made. Matek H7A3/H743 exact target/revision and USB interface
-mapping remain unresolved. USB-C describes connector shape, not the serial or bootloader
-interface. Holybro 933 MHz versus any SiK alternative, firmware, regulatory region, and
-baud plan also remain unresolved and require props-off hardware validation. Clone radios
-must not be assumed equivalent.
+No real-hardware claim is made. The explicit pre-hardware compatibility-profile gate in
+[`development-plan.md`](development-plan.md) blocks props-off and flight work until the
+exact Matek H743 revision/firmware artifact, FC telemetry-port observations, matched
+Holybro SiK identities/settings, and same-vehicle MAVLink identity are recorded and
+reviewed. SKYWriter does not hardcode or write those parameters, and Mission Planner and
+SKYWriter may not compete for one COM port without a separately reviewed router design.

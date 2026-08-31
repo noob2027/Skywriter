@@ -5,7 +5,10 @@ from collections.abc import Callable
 import pytest
 
 from skywriter.application.connected import ConnectedTarget
-from skywriter.application.land_here_now import NativeLandHereNowState
+from skywriter.application.land_here_now import (
+    NativeLandHereNowCommandResult,
+    NativeLandHereNowState,
+)
 from skywriter.application.pause_resume import (
     MAV_LANDED_STATE_LANDING,
     MAV_LANDED_STATE_ON_GROUND,
@@ -154,7 +157,7 @@ def request(
     cancellation: Cancellation,
     *,
     selected: ConnectedTarget | None = None,
-):
+) -> NativeLandHereNowCommandResult:
     return command.request_native_land_here_now(
         selected or target(),
         target_valid_for_s=3.0,
