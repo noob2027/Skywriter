@@ -220,7 +220,7 @@ If Qt cannot initialize a display in an automated session, set
 ## Windows prototype installer
 
 A Windows user without Python can install the prototype from
-`SKYWriter-Prototype-Setup-0.1.1.exe`. Setup installs per-user, creates a Start-menu entry,
+`SKYWriter-Prototype-Setup-0.1.2.exe`. Setup installs per-user, creates a Start-menu entry,
 offers a default desktop shortcut, and registers a standard uninstaller. The application
 still starts offline and disconnected; packaging is not vehicle, bench, motor, or flight
 validation.
@@ -233,6 +233,11 @@ or Unavailable with tile counts and a deliberate Retry action; it never silently
 providers. OpenStreetMap is a best-effort prototype provider, not a production SLA. There
 is no address search, satellite provider, offline tile download, or map-derived Home/Vehicle
 position.
+
+Version 0.1.2 uses Qt WebEngine's Chromium software-rendering path on Windows because the
+accepted 0.1.1 GPU-compositor path was reproduced painting the entire embedded map black.
+The installed smoke now inspects captured map pixels, controlled local tiles, and visible
+Leaflet controls; page/bridge readiness alone is no longer sufficient.
 
 Builds are unsigned unless explicit signing secrets are configured and may trigger
 SmartScreen. Verify `SHA256SUMS.txt` before running Setup. Nontechnical install, launch,

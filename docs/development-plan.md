@@ -197,6 +197,13 @@ provider account, satellite imagery, geocoding, offline tiles, MAVLink access fr
 or any flight behavior. See
 [`codex-tasks/107-packaged-map-usability.md`](../codex-tasks/107-packaged-map-usability.md).
 
+Task 108 follows the failed installed acceptance of Task 107. It reproduces the Windows
+Qt WebEngine GPU-compositor black surface, selects the proven narrow Chromium software
+renderer, records bounded diagnostics, and replaces readiness-only packaging acceptance
+with controlled-tile pixel evidence and visible Leaflet-control checks. It changes no map
+provider boundary, mission behavior, MAVLink path, vehicle state, or flight command. See
+[`codex-tasks/108-windows-webengine-black-surface.md`](../codex-tasks/108-windows-webengine-black-surface.md).
+
 ## 10. Validation ladder
 
 ### Gate A — automated offline

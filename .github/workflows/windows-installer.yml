@@ -55,7 +55,7 @@ jobs:
           Set-ExecutionPolicy -Scope Process Bypass
           .\packaging\windows\build-installer.ps1 `
             -PythonPath (Get-Command python).Source `
-            -BuildRoot (Join-Path $env:RUNNER_TEMP "skywriter-task107-build") `
+            -BuildRoot (Join-Path $env:RUNNER_TEMP "skywriter-task108-build") `
             -OutputDirectory (Join-Path $env:RUNNER_TEMP "skywriter-artifacts")
       - name: Select artifact identity
         id: metadata
@@ -67,11 +67,13 @@ jobs:
       - name: Upload installer and SHA-256 manifest
         uses: actions/upload-artifact@v4
         with:
-          name: skywriter-prototype-windows-${{ steps.metadata.outputs.signing }}-0.1.1
+          name: skywriter-prototype-windows-${{ steps.metadata.outputs.signing }}-0.1.2
           path: |
-            ${{ runner.temp }}/skywriter-artifacts/SKYWriter-Prototype-Setup-0.1.1.exe
+            ${{ runner.temp }}/skywriter-artifacts/SKYWriter-Prototype-Setup-0.1.2.exe
             ${{ runner.temp }}/skywriter-artifacts/SHA256SUMS.txt
             ${{ runner.temp }}/skywriter-artifacts/build-metadata.json
+            ${{ runner.temp }}/skywriter-artifacts/packaged-map-smoke.json
+            ${{ runner.temp }}/skywriter-artifacts/packaged-map-smoke.png
           if-no-files-found: error
           retention-days: 30
       - name: Remove temporary signing material

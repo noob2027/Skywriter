@@ -2,10 +2,10 @@
 
 ## What this proves
 
-Tasks 106 and 107 package the accepted SKYWriter Python, PySide6/Qt WebEngine, pymavlink, map
+Tasks 106 through 108 package the accepted SKYWriter Python, PySide6/Qt WebEngine, pymavlink, map
 assets, Python runtime, Qt plugins/resources, and dependency notices as a PyInstaller
 `onedir` payload. Inno Setup wraps that payload in one per-user Setup executable. Version
-0.1.1 is the Task 107 map-usability prototype.
+0.1.2 is the Task 108 Windows WebEngine black-surface hotfix.
 
 Successful installation and launch prove desktop deployment mechanics only. They do not
 prove vehicle compatibility, bench readiness, arming, motor, mission-execution, or flight
@@ -18,7 +18,7 @@ aircraft-specific setting is embedded in startup behavior.
 
 The expected files are:
 
-- `SKYWriter-Prototype-Setup-0.1.1.exe`
+- `SKYWriter-Prototype-Setup-0.1.2.exe`
 - `SHA256SUMS.txt`
 - `build-metadata.json`
 
@@ -26,7 +26,7 @@ Before installing, compare the Setup file's SHA-256 value with `SHA256SUMS.txt`.
 PowerShell:
 
 ```powershell
-Get-FileHash .\SKYWriter-Prototype-Setup-0.1.1.exe -Algorithm SHA256
+Get-FileHash .\SKYWriter-Prototype-Setup-0.1.2.exe -Algorithm SHA256
 ```
 
 Double-click Setup and follow the prompts. It installs for the current Windows user under
@@ -55,15 +55,23 @@ application lock plus `packaging/requirements-build.lock`, collects declared run
 license files, generates the provisional icon, builds the `onedir` payload, acquires
 Inno Setup 6.7.3 from its official release, verifies the pinned download SHA-256, compiles
 the installer, and runs a silent install/launch/uninstall smoke test. `-BuildRoot` may set
-another dedicated short path whose final directory name contains `skywriter`, `sw106`, or
-`sw107`.
+another dedicated short path whose final directory name contains `skywriter` or `sw106`
+through `sw108`.
 
 The packaged launch smoke starts from an arbitrary working directory, blocks the MAVLink
-open boundary, waits up to 15 seconds for the real local map page, Qt WebChannel bridge, and
-pinned Leaflet 1.9.4 surface to report positive dimensions, writes deterministic JSON
-evidence, and exits success or failure. It remains on the offline provider and therefore
-makes no tile-network request. Use
+open boundary, and uses an interceptor-gated loopback tile fixture. It waits up to 15
+seconds for the real local page, Qt WebChannel bridge, pinned Leaflet 1.9.4 surface, and
+balanced Online tile counters. It then captures the actual `QWebEngineView` pixels and
+requires non-black content, the controlled tile signature, and both DOM-present and
+pixel-visible Leaflet zoom controls. Routine packaging makes no public OSM request. Use
 `-SkipInstallerSmoke` only while diagnosing a build; CI does not skip it.
+
+On Windows, SKYWriter selects Qt WebEngine's documented Chromium software-rendering path
+with `--disable-gpu` before application construction. This is the narrow configuration that
+visibly repaired the reproduced 0.1.1 black child surface; Qt software OpenGL and Qt Quick
+software rendering alone did not. SKYWriter does not disable the WebEngine sandbox, TLS,
+CSP, or request allowlist. Safe renderer facts are written to `map-renderer.json` under the
+application's local data directory and included in packaged smoke evidence.
 
 Pinned build inputs:
 
@@ -77,11 +85,18 @@ Pinned build inputs:
 Generated installers, payloads, certificates, and private keys are ignored and must not
 be committed.
 
-Task 107's verified unsigned local artifact is
-`SKYWriter-Prototype-Setup-0.1.1.exe`, 147,313,409 bytes, SHA-256
-`c293846ead84224cdaf0f260c5bf43361f4f30a9ad342b8005e4c7b24135f5b2`. Its clean smoke
-mounted packaged Leaflet 1.9.4 at 608 × 358 CSS pixels from `C:\Windows` with the offline
-provider and vehicle-I/O guard active, then uninstalled successfully.
+Task 107's 0.1.1 artifact passed its former readiness-only smoke but failed owner-visible
+acceptance with a completely black WebEngine surface. It is superseded by 0.1.2 and must
+not be used as proof of map rendering.
+
+Task 108's verified unsigned artifact is
+`SKYWriter-Prototype-Setup-0.1.2.exe`, 147,330,245 bytes, SHA-256
+`fe35b9d49842939ec3e302ab87fb3628b9baa5234130dd51cd4745d9876f6800`.
+The exact artifact passed silent per-user install, Start-menu shortcut, launch from
+`C:\Windows` with hardware I/O blocked, deterministic local-tile visual acceptance, and
+uninstall. The installed capture proved 99.9771% non-black pixels, visible Leaflet controls
+and attribution, all eight fixture tiles loaded, and no WebEngine sandbox bypass. It remains
+unsigned, so SmartScreen/reputation warnings are expected.
 
 ## Optional signing seam
 

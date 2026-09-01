@@ -44,17 +44,91 @@ if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) {
     throw "Start-menu shortcut is missing: $shortcut"
 }
 
-$previousPlatform = $env:QT_QPA_PLATFORM
-$previousFlags = $env:QTWEBENGINE_CHROMIUM_FLAGS
 $previousEvidence = $env:SKYWRITER_PACKAGED_SMOKE_EVIDENCE
+$previousScreenshot = $env:SKYWRITER_PACKAGED_SMOKE_SCREENSHOT
+$previousTileOrigin = $env:SKYWRITER_PACKAGED_SMOKE_TILE_ORIGIN
 $smokeEvidence = Join-Path $working "packaged-map-smoke.json"
+$smokeScreenshot = Join-Path $working "packaged-map-smoke.png"
+$fixtureTile = Join-Path $working "controlled-tile.png"
+$tileServer = $null
 try {
-    $env:QT_QPA_PLATFORM = "offscreen"
-    $env:QTWEBENGINE_CHROMIUM_FLAGS = "--disable-gpu"
+    Add-Type -AssemblyName System.Drawing
+    $tileBitmap = [System.Drawing.Bitmap]::new(256, 256)
+    $tileGraphics = [System.Drawing.Graphics]::FromImage($tileBitmap)
+    $tileBrush = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(32, 170, 110))
+    $tilePen = [System.Drawing.Pen]::new([System.Drawing.Color]::White, 10)
+    try {
+        $tileGraphics.FillRectangle($tileBrush, 0, 0, 256, 256)
+        $tileGraphics.DrawLine($tilePen, 0, 0, 256, 256)
+        $tileGraphics.DrawLine($tilePen, 256, 0, 0, 256)
+        $tileBitmap.Save($fixtureTile, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $tilePen.Dispose()
+        $tileBrush.Dispose()
+        $tileGraphics.Dispose()
+        $tileBitmap.Dispose()
+    }
+
+    $portProbe = [System.Net.Sockets.TcpListener]::new(
+        [System.Net.IPAddress]::Loopback,
+        0
+    )
+    $portProbe.Start()
+    $tilePort = ([System.Net.IPEndPoint]$portProbe.LocalEndpoint).Port
+    $portProbe.Stop()
+    $tileBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($fixtureTile))
+    $tileServer = Start-Job -ArgumentList $tilePort, $tileBase64 -ScriptBlock {
+        param([int]$Port, [string]$TileBase64)
+        $tile = [Convert]::FromBase64String($TileBase64)
+        $listener = [System.Net.Sockets.TcpListener]::new(
+            [System.Net.IPAddress]::Loopback,
+            $Port
+        )
+        $listener.Start()
+        try {
+            while ($true) {
+                $client = $listener.AcceptTcpClient()
+                try {
+                    $stream = $client.GetStream()
+                    $reader = [IO.StreamReader]::new(
+                        $stream,
+                        [Text.Encoding]::ASCII,
+                        $false,
+                        1024,
+                        $true
+                    )
+                    while (($line = $reader.ReadLine()) -ne $null -and $line.Length -gt 0) {}
+                    $headers = [Text.Encoding]::ASCII.GetBytes(
+                        "HTTP/1.1 200 OK`r`n" +
+                        "Content-Type: image/png`r`n" +
+                        "Cache-Control: public, max-age=300`r`n" +
+                        "Content-Length: $($tile.Length)`r`n" +
+                        "Connection: close`r`n`r`n"
+                    )
+                    $stream.Write($headers, 0, $headers.Length)
+                    $stream.Write($tile, 0, $tile.Length)
+                    $stream.Flush()
+                    $reader.Dispose()
+                    $stream.Dispose()
+                }
+                finally {
+                    $client.Dispose()
+                }
+            }
+        }
+        finally {
+            $listener.Stop()
+        }
+    }
+    Start-Sleep -Milliseconds 500
+
     $env:SKYWRITER_PACKAGED_SMOKE_EVIDENCE = $smokeEvidence
+    $env:SKYWRITER_PACKAGED_SMOKE_SCREENSHOT = $smokeScreenshot
+    $env:SKYWRITER_PACKAGED_SMOKE_TILE_ORIGIN = "http://127.0.0.1:$tilePort"
     Push-Location $env:SystemRoot
     try {
-        $smoke = Start-Process -FilePath $application -ArgumentList "--packaged-smoke-test" -Wait -PassThru -WindowStyle Hidden
+        $smoke = Start-Process -FilePath $application -ArgumentList "--packaged-map-visual-smoke" -Wait -PassThru
     }
     finally {
         Pop-Location
@@ -68,20 +142,41 @@ try {
     $mapEvidence = Get-Content -LiteralPath $smokeEvidence -Raw | ConvertFrom-Json
     if (
         -not $mapEvidence.ready -or
+        -not $mapEvidence.visual_ready -or
         $mapEvidence.leaflet_version -ne "1.9.4" -or
         $mapEvidence.container_width_px -le 0 -or
         $mapEvidence.container_height_px -le 0 -or
         -not $mapEvidence.map_document_exists -or
-        $mapEvidence.provider -ne "offline" -or
+        $mapEvidence.provider -ne "openstreetmap" -or
+        $mapEvidence.provider_state -ne "online" -or
+        $mapEvidence.loaded_tiles -le 0 -or
+        $mapEvidence.error_tiles -ne 0 -or
+        $mapEvidence.pending_tiles -ne 0 -or
+        -not $mapEvidence.leaflet_controls_dom -or
+        -not $mapEvidence.leaflet_controls_visual -or
+        $mapEvidence.fixture_pixel_ratio -lt 0.10 -or
+        $mapEvidence.non_black_pixel_ratio -lt 0.50 -or
+        $mapEvidence.renderer.mode -ne "chromium-software" -or
+        -not $mapEvidence.renderer.windows_software_default -or
+        -not $mapEvidence.renderer.chromium_gpu_disabled -or
+        $mapEvidence.renderer.sandbox_disabled_by_skywriter -or
+        $mapEvidence.renderer.sandbox_disabled_by_environment -or
         -not $mapEvidence.vehicle_io_blocked
     ) {
-        throw "Packaged application map readiness evidence failed validation."
+        throw "Packaged application rendered-map evidence failed validation."
+    }
+    if (-not (Test-Path -LiteralPath $smokeScreenshot -PathType Leaf)) {
+        throw "Packaged application did not capture the rendered map surface."
     }
 }
 finally {
-    $env:QT_QPA_PLATFORM = $previousPlatform
-    $env:QTWEBENGINE_CHROMIUM_FLAGS = $previousFlags
     $env:SKYWRITER_PACKAGED_SMOKE_EVIDENCE = $previousEvidence
+    $env:SKYWRITER_PACKAGED_SMOKE_SCREENSHOT = $previousScreenshot
+    $env:SKYWRITER_PACKAGED_SMOKE_TILE_ORIGIN = $previousTileOrigin
+    if ($null -ne $tileServer) {
+        Stop-Job -Job $tileServer -ErrorAction SilentlyContinue
+        Remove-Job -Job $tileServer -Force -ErrorAction SilentlyContinue
+    }
 }
 
 $uninstallArguments = @(
@@ -101,4 +196,4 @@ if (Test-Path -LiteralPath $shortcut) {
     throw "Start-menu shortcut remained after uninstall: $shortcut"
 }
 
-Write-Host "Install, mounted-map readiness from an arbitrary working directory, Start-menu shortcut, and uninstall smoke passed."
+Write-Host "Install, deterministic non-black rendered-map surface from an arbitrary working directory, Start-menu shortcut, and uninstall smoke passed."

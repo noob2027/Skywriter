@@ -187,6 +187,9 @@ ArduCopter can still reject any command. These gates do not replace native check
 - Important state transitions and acknowledgments are logged with timestamps and vehicle identity.
 - Connection loss fails closed in the UI and does not generate substitute flight setpoints.
 - Windows setup is repeatable from a clean checkout.
+- Installed Windows map acceptance proves non-black WebEngine pixels, visible Leaflet
+  controls, and deterministic local fixture tiles; page/bridge counters alone are
+  insufficient.
 - Dependencies are pinned and CI runs formatting, lint/type checks, and tests.
 - Map/JS bridge messages use a versioned, validated schema; untrusted web content cannot issue vehicle commands.
 

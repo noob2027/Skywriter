@@ -1,4 +1,4 @@
-# Exact Task 107 Windows packaging toolchain for CPython 3.12.10 x64, retained from Task 106.
+# Exact Task 108 Windows packaging toolchain for CPython 3.12.10 x64, retained from Task 106.
 altgraph==0.17.4
 pefile==2024.8.26
 pyinstaller==6.22.2

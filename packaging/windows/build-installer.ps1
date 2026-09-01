@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$PythonPath = "python",
-    [string]$BuildRoot = (Join-Path ([System.IO.Path]::GetTempPath()) "skywriter-task107-build"),
+    [string]$BuildRoot = (Join-Path ([System.IO.Path]::GetTempPath()) "skywriter-task108-build"),
     [string]$OutputDirectory = (Join-Path $PSScriptRoot "..\..\artifacts\windows"),
     [string]$InnoSetupCompiler = "",
     [switch]$SkipInstallerSmoke
@@ -21,8 +21,8 @@ $outputPath = [System.IO.Path]::GetFullPath($OutputDirectory)
 function Assert-SafeBuildPath([string]$Path) {
     $root = [System.IO.Path]::GetPathRoot($Path)
     $leaf = Split-Path -Leaf $Path
-    if ($Path -eq $root -or $Path -eq $repositoryRoot -or $leaf -notmatch "skywriter|sw10[67]") {
-        throw "BuildRoot must be a dedicated path whose name contains 'skywriter', 'sw106', or 'sw107': $Path"
+    if ($Path -eq $root -or $Path -eq $repositoryRoot -or $leaf -notmatch "skywriter|sw10[678]") {
+        throw "BuildRoot must be a dedicated path whose name contains 'skywriter' or 'sw106' through 'sw108': $Path"
     }
 }
 
@@ -191,6 +191,8 @@ if (-not $SkipInstallerSmoke) {
     if ($LASTEXITCODE -ne 0) {
         throw "Installer smoke script failed with exit code $LASTEXITCODE."
     }
+    Copy-Item -LiteralPath (Join-Path $smokeRoot "packaged-map-smoke.json") -Destination $outputPath
+    Copy-Item -LiteralPath (Join-Path $smokeRoot "packaged-map-smoke.png") -Destination $outputPath
 }
 
 $artifact = Get-Item -LiteralPath $installer
