@@ -584,7 +584,7 @@ def test_javascript_click_at_viewport_point_clamps_outside_request_into_map_boun
     assert used["x"] <= rect["right"]
     assert used["y"] >= rect["top"]
     assert used["y"] <= rect["bottom"]
-    assert abs(cast(float, used["x"]) - requested_x) > 0
+    assert abs(used["x"] - requested_x) > 0
     wait_until(lambda: len(clicked) == 1)
     assert -90 <= clicked[0].latitude_deg <= 90
     assert -180 <= clicked[0].longitude_deg <= 180
