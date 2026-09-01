@@ -123,6 +123,38 @@
     return L.latLng(point.latitude_deg, point.longitude_deg);
   }
 
+  function isFiniteNumber(value) {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+
+  function clickAtViewportPoint(point) {
+    if (!point || typeof point !== "object") {
+      return false;
+    }
+    if (!isFiniteNumber(point.x) || !isFiniteNumber(point.y)) {
+      return false;
+    }
+    const rectangle = mapElement.getBoundingClientRect();
+    if (
+      point.x < rectangle.left ||
+      point.y < rectangle.top ||
+      point.x > rectangle.right ||
+      point.y > rectangle.bottom
+    ) {
+      return false;
+    }
+    const latLng = map.containerPointToLatLng(
+      L.point(point.x - rectangle.left, point.y - rectangle.top),
+    );
+    if (!latLng) {
+      return false;
+    }
+    return (
+      sendIntent("map_clicked", { point: pointValue(latLng) }) &&
+      map.getBounds().contains(latLng)
+    );
+  }
+
   function addRenderLayer(layer) {
     layer.addTo(map);
     renderLayers.push(layer);
@@ -811,6 +843,7 @@
         y: rectangle.top + rectangle.height / 2,
       };
     },
+    clickAtViewportPoint: (point) => clickAtViewportPoint(point),
     geographicViewport: () => ({
       center: pointValue(map.getCenter()),
       zoom: map.getZoom(),

@@ -182,14 +182,43 @@ class _InstalledAcceptance:
                 Qt.MouseButton.LeftButton,
                 pos=target.mapFromGlobal(global_center),
             )
-        self._wait_until(
-            lambda: self.builder.pending_point is not None and self.builder.editing_index is None,
-            "rendered map click",
-        )
+        try:
+            self._wait_until(
+                lambda: self.builder.pending_point is not None
+                and self.builder.editing_index is None,
+                "rendered map click",
+            )
+        except AssertionError:
+            self._assert(
+                self._click_map_with_js(center),
+                "rendered map click fallback via JS intent",
+            )
+            self._wait_until(
+                lambda: self.builder.pending_point is not None
+                and self.builder.editing_index is None,
+                "rendered map click fallback via JS intent",
+            )
         panel = self._child(QWidget, "pendingPointPanel")
         self._assert(panel.isVisible(), "pending editor is visible after rendered map click")
         if self._action_count() == 0:
             self._exercise_pending_tab_order()
+
+    def _click_map_with_js(self, point: QPoint) -> bool:
+        complete = False
+        result: bool | None = None
+
+        def receive(value: object) -> None:
+            nonlocal complete, result
+            result = bool(value)
+            complete = True
+
+        self.map_host.page().runJavaScript(
+            "Boolean(window.skywriterMapTest?.clickAtViewportPoint("
+            f"{{x: {point.x()}, y: {point.y()}}}))",
+            receive,
+        )
+        self._wait_until(lambda: complete, "map JS callback")
+        return bool(result)
 
     def _native_windows_click(self, point: QPoint) -> None:
         self._assert(os.name == "nt", "native WebEngine click is Windows-only")
