@@ -2,10 +2,10 @@
 
 ## What this proves
 
-Tasks 106 through 108 package the accepted SKYWriter Python, PySide6/Qt WebEngine, pymavlink, map
+Tasks 106 through 109 package the accepted SKYWriter Python, PySide6/Qt WebEngine, pymavlink, map
 assets, Python runtime, Qt plugins/resources, and dependency notices as a PyInstaller
 `onedir` payload. Inno Setup wraps that payload in one per-user Setup executable. Version
-0.1.2 is the Task 108 Windows WebEngine black-surface hotfix.
+0.1.3 is the Task 109 installed-control and Confirm-point repair.
 
 Successful installation and launch prove desktop deployment mechanics only. They do not
 prove vehicle compatibility, bench readiness, arming, motor, mission-execution, or flight
@@ -18,7 +18,7 @@ aircraft-specific setting is embedded in startup behavior.
 
 The expected files are:
 
-- `SKYWriter-Prototype-Setup-0.1.2.exe`
+- `SKYWriter-Prototype-Setup-0.1.3.exe`
 - `SHA256SUMS.txt`
 - `build-metadata.json`
 
@@ -26,7 +26,7 @@ Before installing, compare the Setup file's SHA-256 value with `SHA256SUMS.txt`.
 PowerShell:
 
 ```powershell
-Get-FileHash .\SKYWriter-Prototype-Setup-0.1.2.exe -Algorithm SHA256
+Get-FileHash .\SKYWriter-Prototype-Setup-0.1.3.exe -Algorithm SHA256
 ```
 
 Double-click Setup and follow the prompts. It installs for the current Windows user under
@@ -56,7 +56,7 @@ license files, generates the provisional icon, builds the `onedir` payload, acqu
 Inno Setup 6.7.3 from its official release, verifies the pinned download SHA-256, compiles
 the installer, and runs a silent install/launch/uninstall smoke test. `-BuildRoot` may set
 another dedicated short path whose final directory name contains `skywriter` or `sw106`
-through `sw108`.
+through `sw109`.
 
 The packaged launch smoke starts from an arbitrary working directory, blocks the MAVLink
 open boundary, and uses an interceptor-gated loopback tile fixture. It waits up to 15
@@ -65,6 +65,15 @@ balanced Online tile counters. It then captures the actual `QWebEngineView` pixe
 requires non-black content, the controlled tile signature, and both DOM-present and
 pixel-visible Leaflet zoom controls. Routine packaging makes no public OSM request. Use
 `-SkipInstallerSmoke` only while diagnosing a build; CI does not skip it.
+
+Task 109 extends that install session with a production-widget acceptance run. The script
+resolves the exact installed Start-menu shortcut, launches it from an arbitrary working
+directory, uses native Qt mouse/keyboard paths against rendered widgets, and captures
+full-window screenshots plus structured evidence at 1498×758 and 1366×768. It exercises
+Builder validation/success/rejection, deterministic temp-only Save/Load, keyboard order,
+resize behavior, and all offline tab gates. The offline grid and local fixtures are used;
+the MAVLink open boundary is hard-blocked and attempted and successful opens must both be
+zero. Cleanup and uninstall run even when acceptance fails.
 
 On Windows, SKYWriter selects Qt WebEngine's documented Chromium software-rendering path
 with `--disable-gpu` before application construction. This is the narrow configuration that
@@ -97,6 +106,11 @@ The exact artifact passed silent per-user install, Start-menu shortcut, launch f
 uninstall. The installed capture proved 99.9771% non-black pixels, visible Leaflet controls
 and attribution, all eight fixture tiles loaded, and no WebEngine sandbox bypass. It remains
 unsigned, so SmartScreen/reputation warnings are expected.
+
+Task 109 supersedes that installer with 0.1.3. Its exact size and SHA-256 are recorded in
+the PR task report and generated `build-metadata.json`; it remains unsigned. Installed
+acceptance is a human-path usability and packaging gate, not evidence that a
+hardware-dependent command works.
 
 ## Optional signing seam
 

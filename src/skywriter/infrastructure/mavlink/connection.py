@@ -29,6 +29,25 @@ MAV_CMD_COMPONENT_ARM_DISARM = 400
 MAV_CMD_RUN_PREARM_CHECKS = 401
 MAVLINK_MSG_ID_MISSION_CURRENT = 42
 MAVLINK_MSG_ID_EXTENDED_SYS_STATE = 245
+_VEHICLE_IO_AUDIT_LOCK = threading.Lock()
+_vehicle_io_attempts = 0
+_vehicle_io_successes = 0
+
+
+@dataclass(frozen=True, slots=True)
+class VehicleIoAuditSnapshot:
+    """Process-local proof of calls that reached the sole physical open boundary."""
+
+    attempts: int
+    successes: int
+
+    def as_dict(self) -> dict[str, int]:
+        return {"attempts": self.attempts, "successes": self.successes}
+
+
+def vehicle_io_audit_snapshot() -> VehicleIoAuditSnapshot:
+    with _VEHICLE_IO_AUDIT_LOCK:
+        return VehicleIoAuditSnapshot(_vehicle_io_attempts, _vehicle_io_successes)
 
 
 class TransportKind(StrEnum):
@@ -871,6 +890,9 @@ def open_pymavlink_link(
 ) -> PymavlinkMissionLink:
     """Open the explicitly supplied endpoint under the exact pinned library/dialect."""
 
+    global _vehicle_io_attempts, _vehicle_io_successes
+    with _VEHICLE_IO_AUDIT_LOCK:
+        _vehicle_io_attempts += 1
     if os.environ.get(PACKAGED_SMOKE_TEST_ENVIRONMENT) == "1":
         raise RuntimeError("vehicle I/O is disabled during the packaged launch smoke test")
     installed = importlib.metadata.version("pymavlink")
@@ -891,4 +913,6 @@ def open_pymavlink_link(
         source_component=local_address.component_id,
         dialect=PINNED_DIALECT,
     )
+    with _VEHICLE_IO_AUDIT_LOCK:
+        _vehicle_io_successes += 1
     return PymavlinkMissionLink(connection, descriptor, local_address=local_address)

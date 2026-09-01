@@ -156,7 +156,7 @@ class MissionMapHost(QWebEngineView):
             raise ValueError("test tile timeout must be 100..60000 milliseconds")
         self.setObjectName("missionMapHost")
         self.setAccessibleName("Interactive mission route map")
-        self.setMinimumSize(520, 440)
+        self.setMinimumSize(320, 260)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._tile_provider = TileProvider.OFFLINE
         self._tile_attempt_id = 0

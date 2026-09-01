@@ -59,6 +59,7 @@ class PreflightTelemetryWidget(QWidget):
         self._readiness = PrearmReadinessSnapshot()
         self._arm = NormalArmSnapshot()
         self._arm_worker: NormalArmWorkerHandoff | None = None
+        self._interaction_unavailable_reason: str | None = None
         self.setObjectName("preflightTelemetryView")
         root = QVBoxLayout(self)
         heading = QLabel("Preflight telemetry")
@@ -76,6 +77,15 @@ class PreflightTelemetryWidget(QWidget):
         )
         root.addWidget(heading)
         root.addWidget(disclaimer)
+        self._interaction_gate = QLabel()
+        self._interaction_gate.setObjectName("preflightInteractionGate")
+        self._interaction_gate.setAccessibleName("Preflight controls unavailable explanation")
+        self._interaction_gate.setWordWrap(True)
+        self._interaction_gate.setStyleSheet(
+            "padding: 9px; background: #e5f0f6; color: #17435a; font-weight: 700;"
+        )
+        self._interaction_gate.setVisible(False)
+        root.addWidget(self._interaction_gate)
 
         command_panel = QFrame()
         command_panel.setObjectName("nativePrearmReviewPanel")
@@ -183,6 +193,16 @@ class PreflightTelemetryWidget(QWidget):
         self.render_readiness(self._readiness, now_s=0.0)
         self.render_arm(self._arm)
 
+    def set_interaction_unavailable(self, reason: str) -> None:
+        """Disable vehicle actions when the installed shell has no controller binding."""
+
+        if not reason.strip():
+            raise ValueError("interaction-unavailable reason must not be empty")
+        self._interaction_unavailable_reason = reason
+        self._interaction_gate.setText(reason)
+        self._interaction_gate.setVisible(True)
+        self._apply_interaction_gate()
+
     def _emit_prearm_request(self) -> None:
         # Disable synchronously so a double-click cannot queue a second worker transaction.
         self._request_button.setEnabled(False)
@@ -240,6 +260,7 @@ class PreflightTelemetryWidget(QWidget):
             and arm.state is not NormalArmState.PENDING
             and arm.state is not NormalArmState.ARMED
         )
+        self._apply_interaction_gate()
         if arm.native_messages:
             current = (
                 ()
@@ -276,11 +297,20 @@ class PreflightTelemetryWidget(QWidget):
         self._review_ack.setChecked(readiness.review_acknowledged)
         self._review_ack.setEnabled(readiness.review_available)
         self._review_ack.blockSignals(False)
+        self._apply_interaction_gate()
         if readiness.native_messages:
             current = () if readiness.telemetry is None else readiness.telemetry.native_messages
             combined = (*current, *readiness.native_messages)
             self._messages.render_messages((message.severity, message.text) for message in combined)
             self._messages.scrollToBottom()
+
+    def _apply_interaction_gate(self) -> None:
+        reason = self._interaction_unavailable_reason
+        if reason is None:
+            return
+        for control in (self._request_button, self._review_ack, self._arm_button):
+            control.setEnabled(False)
+            control.setToolTip(reason)
 
     def render_snapshot(self, snapshot: TelemetrySnapshot | None, *, now_s: float) -> None:
         if snapshot is None:
@@ -424,7 +454,7 @@ def _assessment_text(assessment: NativePrearmAssessment) -> str:
 
 def _arm_state_text(state: NormalArmState) -> str:
     return {
-        NormalArmState.IDLE: "Ready for one normal Arm request",
+        NormalArmState.IDLE: "Normal Arm has not been requested — readiness gate is blocked",
         NormalArmState.PENDING: "Normal Arm pending — controls locked",
         NormalArmState.ARMED: "Armed — acknowledgment and telemetry confirmed",
         NormalArmState.REJECTED: "Normal Arm rejected by ArduCopter",

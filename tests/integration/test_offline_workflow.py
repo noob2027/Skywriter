@@ -313,3 +313,79 @@ def test_complete_offline_create_edit_save_load_compile_and_map_visuals(
     assert "failed" in child(workspace, QLabel, "offlineWorkflowStatus").text().lower()
     assert child(workspace, QLabel, "structuralValidationStatus").text()
     window.close()
+
+
+def test_downstream_replace_rejection_retains_pending_editor_and_values() -> None:
+    app = create_application(["skywriter-task-109-rejection"])
+    workspace = OfflineMissionWorkspace()
+    workspace.resize(980, 560)
+    workspace.show()
+    confirm_takeoff(workspace)
+    confirm_point(workspace, GeoPoint(38.0, -77.0), "proceed", "30")
+    confirm_point(workspace, GeoPoint(38.1, -77.1), "proceed", "35")
+    action_list = child(workspace, QListWidget, "missionActionList")
+    action_list.setCurrentRow(0)
+    kind = child(workspace, QComboBox, "actionKindInput")
+    kind.setCurrentIndex(kind.findData("land"))
+    altitude = child(workspace, QLineEdit, "actionAltitudeInput")
+    altitude.setText("9")
+
+    child(workspace, QPushButton, "confirmActionButton").click()
+    app.processEvents()
+
+    mission = workspace.service.snapshot.mission
+    assert mission is not None
+    assert len(mission.actions) == 2
+    assert workspace.builder.pending_point == GeoPoint(38.0, -77.0)
+    assert child(workspace, QWidget, "pendingPointPanel").isVisible()
+    assert kind.currentData() == "land"
+    assert altitude.text() == "9"
+    assert (
+        "Land must be the final action"
+        in child(workspace, QLabel, "pendingPointValidationError").text()
+    )
+    assert kind.hasFocus()
+    assert child(workspace, QPushButton, "confirmActionButton").isEnabled()
+    workspace.close()
+
+
+def test_successful_new_and_load_clear_transient_pending_state(tmp_path: Path) -> None:
+    create_application(["skywriter-task-109-reset"])
+    workspace = OfflineMissionWorkspace()
+    confirm_takeoff(workspace)
+    confirm_point(workspace, GeoPoint(38.0, -77.0), "proceed", "30")
+    saved = tmp_path / "draft.json"
+    workspace.save_mission(saved)
+
+    workspace.builder.begin_pending(GeoPoint(38.2, -77.2))
+    assert workspace.builder.pending_point is not None
+    workspace.load_mission(saved)
+    assert workspace.builder.pending_point is None
+    assert child(workspace, QWidget, "pendingPointPanel").isHidden()
+
+    workspace.builder.begin_pending(GeoPoint(38.3, -77.3))
+    workspace.new_mission()
+    assert workspace.builder.pending_point is None
+    assert child(workspace, QWidget, "pendingPointPanel").isHidden()
+    workspace.close()
+
+
+def test_file_dialog_buttons_use_deterministic_test_picker_seam(tmp_path: Path) -> None:
+    create_application(["skywriter-task-109-file-picker"])
+    saved = tmp_path / "picker-mission.json"
+    workspace = OfflineMissionWorkspace(
+        save_path_picker=lambda _initial: saved,
+        load_path_picker=lambda: saved,
+    )
+    confirm_takeoff(workspace)
+    confirm_point(workspace, GeoPoint(38.0, -77.0), "proceed", "30")
+    persisted = workspace.service.snapshot.mission
+
+    child(workspace, QPushButton, "saveMissionButton").click()
+    assert saved.is_file()
+    workspace.new_mission()
+    child(workspace, QPushButton, "loadMissionButton").click()
+
+    assert workspace.service.snapshot.mission == persisted
+    assert workspace.service.snapshot.source_path == saved
+    workspace.close()

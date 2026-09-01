@@ -119,10 +119,15 @@ class OfflineMissionWorkspace(QWidget):
         self,
         service: OfflineMissionService | None = None,
         parent: QWidget | None = None,
+        *,
+        save_path_picker: Callable[[str], str | os.PathLike[str] | None] | None = None,
+        load_path_picker: Callable[[], str | os.PathLike[str] | None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("offlineMissionWorkspace")
         self._service = service or OfflineMissionService(JsonMissionRepository())
+        self._save_path_picker = save_path_picker
+        self._load_path_picker = load_path_picker
         self._build_ui()
         self._builder.intent_emitted.connect(self._on_builder_intent)
         self._render()
@@ -137,6 +142,7 @@ class OfflineMissionWorkspace(QWidget):
 
     def new_mission(self) -> None:
         self._service.new_mission()
+        self._builder.reset_transient_editor()
         self._render()
 
     def update_settings(self, settings: MissionSettings) -> None:
@@ -146,7 +152,7 @@ class OfflineMissionWorkspace(QWidget):
         self._run(lambda: self._service.save(path))
 
     def load_mission(self, path: str | os.PathLike[str]) -> None:
-        self._run(lambda: self._service.load(path))
+        self._run(lambda: self._service.load(path), reset_transient_editor=True)
 
     def compile_preview(self) -> None:
         self._run(self._service.compile_preview)
@@ -210,7 +216,7 @@ class OfflineMissionWorkspace(QWidget):
         panel = QFrame()
         panel.setObjectName("compiledPreviewPanel")
         panel.setFrameShape(QFrame.Shape.StyledPanel)
-        panel.setMinimumWidth(390)
+        panel.setMinimumWidth(260)
         layout = QVBoxLayout(panel)
         heading = QLabel("Deterministic native sequence")
         heading.setStyleSheet("font-size: 18px; font-weight: 700; color: #163f3d;")
@@ -264,12 +270,19 @@ class OfflineMissionWorkspace(QWidget):
         else:
             self._render("The builder returned an unsupported action.")
 
-    def _run(self, operation: Callable[[], object]) -> None:
+    def _run(
+        self,
+        operation: Callable[[], object],
+        *,
+        reset_transient_editor: bool = False,
+    ) -> None:
         try:
             operation()
         except _WORKFLOW_ERRORS as error:
             self._render(str(error))
             return
+        if reset_transient_editor:
+            self._builder.reset_transient_editor()
         self._render()
 
     def _render(self, error_message: str | None = None) -> None:
@@ -332,16 +345,24 @@ class OfflineMissionWorkspace(QWidget):
     def _choose_save_path(self) -> None:
         source_path = self._service.snapshot.source_path
         initial = "" if source_path is None else str(source_path)
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save mission", initial, "SKYWriter mission (*.json)"
-        )
+        if self._save_path_picker is None:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Save mission", initial, "SKYWriter mission (*.json)"
+            )
+        else:
+            selected = self._save_path_picker(initial)
+            path = "" if selected is None else str(selected)
         if path:
             self.save_mission(path)
 
     def _choose_load_path(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Load mission", "", "SKYWriter mission (*.json)"
-        )
+        if self._load_path_picker is None:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Load mission", "", "SKYWriter mission (*.json)"
+            )
+        else:
+            selected = self._load_path_picker()
+            path = "" if selected is None else str(selected)
         if path:
             self.load_mission(path)
 

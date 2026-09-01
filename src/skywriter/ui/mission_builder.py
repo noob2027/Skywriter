@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeAlias, cast
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -68,6 +68,12 @@ class MissionBuilderSnapshot:
     @property
     def is_closed(self) -> bool:
         return bool(self.actions) and isinstance(self.actions[-1], LandAction)
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingCommit:
+    intent: ActionAppendRequested | ActionReplaceRequested
+    prior_actions: tuple[MissionAction, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,10 +145,11 @@ class MissionBuilderWidget(QWidget):
         super().__init__()
         self.setObjectName("missionBuilder")
         self.setAccessibleName("Mission builder")
-        self.setMinimumSize(980, 680)
+        self.setMinimumSize(680, 480)
         self._snapshot = MissionBuilderSnapshot()
         self._pending_point: GeoPoint | None = None
         self._editing_index: int | None = None
+        self._pending_commit: _PendingCommit | None = None
         self._build_ui(map_host)
         self._connect_signals()
         self.render_snapshot(self._snapshot)
@@ -156,6 +163,10 @@ class MissionBuilderWidget(QWidget):
         return self._pending_point
 
     @property
+    def editing_index(self) -> int | None:
+        return self._editing_index
+
+    @property
     def map_canvas(self) -> MissionMapHost:
         return self._map
 
@@ -163,6 +174,26 @@ class MissionBuilderWidget(QWidget):
         """Render a complete immutable snapshot supplied by the host adapter."""
 
         self._snapshot = snapshot
+        commit_failed = self._pending_commit is not None and snapshot.error_message is not None
+        commit_succeeded = self._commit_is_reflected(snapshot)
+        if commit_failed:
+            self._finish_pending_commit()
+            self._show_pending_error(
+                snapshot.error_message or "The point was rejected.", self._action_kind
+            )
+        elif commit_succeeded:
+            committed = self._pending_commit
+            self._finish_pending_commit()
+            self._clear_pending()
+            if committed is not None:
+                if isinstance(committed.intent, ActionAppendRequested):
+                    index = len(snapshot.actions)
+                    action = committed.intent.action
+                else:
+                    index = committed.intent.index + 1
+                    action = committed.intent.action
+                self._show_success(f"Point {index} confirmed as {_action_name(action)}.")
+
         settings_ready = snapshot.settings is not None
         self._takeoff_panel.setVisible(not settings_ready)
         self._mission_panel.setVisible(settings_ready)
@@ -177,16 +208,26 @@ class MissionBuilderWidget(QWidget):
             self._primary_action.setText("Land added")
         self._remove_land.setVisible(snapshot.is_closed)
         self._rebuild_action_list()
+        if self._success.isVisible():
+            self._action_list.scrollToBottom()
         self._render_summary()
-        if snapshot.error_message:
+        if snapshot.error_message and not commit_failed:
             self._show_error(snapshot.error_message)
         elif not self._pending_point:
             self._clear_error()
         if snapshot.selected_index is not None and self._valid_index(snapshot.selected_index):
-            self._begin_edit(snapshot.selected_index)
+            if not (commit_failed and self._editing_index == snapshot.selected_index):
+                self._begin_edit(snapshot.selected_index)
         elif self._editing_index is not None and not self._valid_index(self._editing_index):
             self._clear_pending()
         self._refresh_map()
+
+    def reset_transient_editor(self) -> None:
+        """Clear pending/edit UI after a successful New or Load operation."""
+
+        self._finish_pending_commit()
+        self._clear_pending()
+        self._clear_success()
 
     def begin_pending(self, point: GeoPoint) -> None:
         """Public map-adapter hook for a validated decimal-degree click."""
@@ -282,13 +323,13 @@ class MissionBuilderWidget(QWidget):
         map_layout.addWidget(self._map, 1)
         content.addWidget(map_panel, 3)
 
-        side_scroll = QScrollArea()
-        side_scroll.setObjectName("missionSidebarScroll")
-        side_scroll.setWidgetResizable(True)
-        side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        side_scroll.setMinimumWidth(370)
-        side_scroll.setMaximumWidth(430)
-        side_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._side_scroll = QScrollArea()
+        self._side_scroll.setObjectName("missionSidebarScroll")
+        self._side_scroll.setWidgetResizable(True)
+        self._side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._side_scroll.setMinimumWidth(410)
+        self._side_scroll.setMaximumWidth(430)
+        self._side_scroll.setFrameShape(QFrame.Shape.NoFrame)
         side = QWidget()
         side.setObjectName("missionSidebar")
         side_layout = QVBoxLayout(side)
@@ -314,8 +355,8 @@ class MissionBuilderWidget(QWidget):
         self._error.setVisible(False)
         side_layout.addWidget(self._error)
         side_layout.addStretch()
-        side_scroll.setWidget(side)
-        content.addWidget(side_scroll, 1)
+        self._side_scroll.setWidget(side)
+        content.addWidget(self._side_scroll, 1)
         root.addLayout(content, 1)
 
     def _build_takeoff_panel(self) -> QFrame:
@@ -323,11 +364,19 @@ class MissionBuilderWidget(QWidget):
         layout = QVBoxLayout(panel)
         layout.setSpacing(10)
         layout.addWidget(_section_title("1  Takeoff setup"))
-        layout.addWidget(_field_label("Takeoff altitude Above Home (m)"))
-        self._takeoff_altitude = _number_input("takeoffAltitudeInput", "e.g. 25")
+        altitude_label = _field_label("Takeoff altitude Above Home (m)")
+        layout.addWidget(altitude_label)
+        self._takeoff_altitude = _number_input(
+            "takeoffAltitudeInput", "e.g. 25", "Takeoff altitude Above Home in meters"
+        )
+        altitude_label.setBuddy(self._takeoff_altitude)
         layout.addWidget(self._takeoff_altitude)
-        layout.addWidget(_field_label("Mission cruise speed (m/s)"))
-        self._cruise_speed = _number_input("cruiseSpeedInput", "e.g. 6")
+        speed_label = _field_label("Mission cruise speed (m/s)")
+        layout.addWidget(speed_label)
+        self._cruise_speed = _number_input(
+            "cruiseSpeedInput", "e.g. 6", "Mission cruise speed in meters per second"
+        )
+        speed_label.setBuddy(self._cruise_speed)
         layout.addWidget(self._cruise_speed)
         warning = QLabel(OBSTACLE_WARNING_TEXT)
         warning.setObjectName("obstacleWarningText")
@@ -338,8 +387,11 @@ class MissionBuilderWidget(QWidget):
         self._warning_ack.setObjectName("obstacleWarningCheck")
         self._warning_ack.setAccessibleName("Acknowledge obstacle warning")
         layout.addWidget(self._warning_ack)
+        self._takeoff_error = _inline_error("takeoffValidationError", "Takeoff validation error")
+        layout.addWidget(self._takeoff_error)
         self._confirm_takeoff = QPushButton("Confirm Takeoff")
         self._confirm_takeoff.setObjectName("confirmTakeoffButton")
+        self._confirm_takeoff.setAccessibleName("Confirm Takeoff settings")
         layout.addWidget(self._confirm_takeoff)
         return panel
 
@@ -379,6 +431,13 @@ class MissionBuilderWidget(QWidget):
         self._summary.setWordWrap(True)
         self._summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByKeyboard)
         layout.addWidget(self._summary)
+        self._success = QLabel()
+        self._success.setObjectName("builderSuccess")
+        self._success.setAccessibleName("Mission builder success")
+        self._success.setWordWrap(True)
+        self._success.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._success.setVisible(False)
+        layout.addWidget(self._success)
         return panel
 
     def _build_pending_panel(self) -> QFrame:
@@ -390,7 +449,8 @@ class MissionBuilderWidget(QWidget):
         self._pending_coordinates = QLabel()
         self._pending_coordinates.setObjectName("pendingCoordinates")
         layout.addWidget(self._pending_coordinates)
-        layout.addWidget(_field_label("Action"))
+        action_label = _field_label("Action")
+        layout.addWidget(action_label)
         self._action_kind = QComboBox()
         self._action_kind.setObjectName("actionKindInput")
         self._action_kind.setAccessibleName("Pending point action")
@@ -401,28 +461,40 @@ class MissionBuilderWidget(QWidget):
             ("Land", ActionKind.LAND),
         ):
             self._action_kind.addItem(label, kind.value)
+        action_label.setBuddy(self._action_kind)
         layout.addWidget(self._action_kind)
         self._altitude_label = _field_label("Altitude Above Home (m)")
         layout.addWidget(self._altitude_label)
-        self._altitude = _number_input("actionAltitudeInput", "e.g. 30")
+        self._altitude = _number_input(
+            "actionAltitudeInput", "e.g. 30", "Point altitude Above Home in meters"
+        )
+        self._altitude_label.setBuddy(self._altitude)
         layout.addWidget(self._altitude)
         self._hold_label = _field_label("Hold time (seconds)")
-        self._hold_time = _number_input("holdTimeInput", "e.g. 10")
+        self._hold_time = _number_input("holdTimeInput", "e.g. 10", "Hold time in seconds")
+        self._hold_label.setBuddy(self._hold_time)
         layout.addWidget(self._hold_label)
         layout.addWidget(self._hold_time)
         self._radius_label = _field_label("Circle radius (meters)")
-        self._radius = _number_input("circleRadiusInput", "e.g. 15")
+        self._radius = _number_input("circleRadiusInput", "e.g. 15", "Circle radius in meters")
+        self._radius_label.setBuddy(self._radius)
         layout.addWidget(self._radius_label)
         layout.addWidget(self._radius)
         cue = QLabel("Circle is one clockwise turn")
         cue.setObjectName("circleDirectionCue")
         layout.addWidget(cue)
         self._circle_cue = cue
+        self._pending_error = _inline_error(
+            "pendingPointValidationError", "Pending point validation error"
+        )
+        layout.addWidget(self._pending_error)
         actions = QHBoxLayout()
         self._cancel_pending = QPushButton("Cancel")
         self._cancel_pending.setObjectName("cancelPendingButton")
+        self._cancel_pending.setAccessibleName("Cancel pending mission point")
         self._confirm_action = QPushButton("Confirm point")
         self._confirm_action.setObjectName("confirmActionButton")
+        self._confirm_action.setAccessibleName("Confirm pending mission point")
         actions.addWidget(self._cancel_pending)
         actions.addWidget(self._confirm_action)
         layout.addLayout(actions)
@@ -449,6 +521,11 @@ class MissionBuilderWidget(QWidget):
         self._map.point_selected.connect(self._on_canvas_selected)
         self._map.point_dragged.connect(self._on_point_dragged)
         self._map.provider_status_changed.connect(self._on_provider_status_changed)
+        QWidget.setTabOrder(self._action_kind, self._altitude)
+        QWidget.setTabOrder(self._altitude, self._hold_time)
+        QWidget.setTabOrder(self._hold_time, self._radius)
+        QWidget.setTabOrder(self._radius, self._cancel_pending)
+        QWidget.setTabOrder(self._cancel_pending, self._confirm_action)
 
     def _on_primary_action(self) -> None:
         if self._snapshot.settings is None:
@@ -467,12 +544,21 @@ class MissionBuilderWidget(QWidget):
     def _on_confirm_takeoff(self) -> None:
         try:
             altitude_m = _parse_finite(self._takeoff_altitude.text(), "Takeoff altitude")
-            speed_m_s = _parse_positive(self._cruise_speed.text(), "Cruise speed")
-            if not self._warning_ack.isChecked():
-                raise ValueError("Acknowledge the obstacle warning before confirming Takeoff.")
         except ValueError as error:
-            self._show_error(str(error))
+            self._show_takeoff_error(str(error), self._takeoff_altitude)
             return
+        try:
+            speed_m_s = _parse_positive(self._cruise_speed.text(), "Cruise speed")
+        except ValueError as error:
+            self._show_takeoff_error(str(error), self._cruise_speed)
+            return
+        if not self._warning_ack.isChecked():
+            self._show_takeoff_error(
+                "Acknowledge the obstacle warning before confirming Takeoff.",
+                self._warning_ack,
+            )
+            return
+        self._takeoff_error.setVisible(False)
         self._clear_error()
         self.intent_emitted.emit(
             TakeoffRequested(
@@ -502,47 +588,63 @@ class MissionBuilderWidget(QWidget):
         self._altitude.clear()
         self._hold_time.clear()
         self._radius.clear()
+        for field in (self._altitude, self._hold_time, self._radius, self._action_kind):
+            field.setAccessibleDescription("")
         self._pending_panel.setVisible(True)
+        self._pending_error.setVisible(False)
+        self._clear_success()
         self._clear_error()
         self._refresh_map()
         self._action_kind.setFocus()
+        self._ensure_visible(self._pending_panel)
 
     def _on_confirm_action(self) -> None:
+        if self._pending_commit is not None:
+            return
         if self._pending_point is None:
             self._show_error("Click the map before confirming a point.")
             return
         try:
             altitude_m = _parse_finite(self._altitude.text(), "Altitude")
-            kind = self._current_action_kind()
-            if self._editing_land():
-                kind = ActionKind.LAND
-            action: MissionAction
-            if kind is ActionKind.PROCEED:
-                action = ProceedAction(self._pending_point, altitude_m)
-            elif kind is ActionKind.HOLD:
-                action = HoldAction(
-                    self._pending_point,
-                    altitude_m,
-                    _parse_positive(self._hold_time.text(), "Hold time"),
-                )
-            elif kind is ActionKind.CIRCLE:
-                action = CircleAction(
-                    self._pending_point,
-                    altitude_m,
-                    _parse_positive(self._radius.text(), "Circle radius"),
-                )
-            else:
-                action = LandAction(self._pending_point, altitude_m)
         except ValueError as error:
-            self._show_error(str(error))
+            self._show_pending_error(str(error), self._altitude)
             return
 
-        editing_index = self._editing_index
-        self._clear_pending()
-        if editing_index is None:
-            self.intent_emitted.emit(ActionAppendRequested(action))
+        kind = self._current_action_kind()
+        if self._editing_land():
+            kind = ActionKind.LAND
+        action: MissionAction
+        if kind is ActionKind.PROCEED:
+            action = ProceedAction(self._pending_point, altitude_m)
+        elif kind is ActionKind.HOLD:
+            try:
+                hold_time_s = _parse_positive(self._hold_time.text(), "Hold time")
+            except ValueError as error:
+                self._show_pending_error(str(error), self._hold_time)
+                return
+            action = HoldAction(self._pending_point, altitude_m, hold_time_s)
+        elif kind is ActionKind.CIRCLE:
+            try:
+                radius_m = _parse_positive(self._radius.text(), "Circle radius")
+            except ValueError as error:
+                self._show_pending_error(str(error), self._radius)
+                return
+            action = CircleAction(self._pending_point, altitude_m, radius_m)
         else:
-            self.intent_emitted.emit(ActionReplaceRequested(editing_index, action))
+            action = LandAction(self._pending_point, altitude_m)
+
+        editing_index = self._editing_index
+        intent: ActionAppendRequested | ActionReplaceRequested
+        if editing_index is None:
+            intent = ActionAppendRequested(action)
+        else:
+            intent = ActionReplaceRequested(editing_index, action)
+        self._pending_commit = _PendingCommit(intent, self._snapshot.actions)
+        self._pending_error.setVisible(False)
+        self._confirm_action.setEnabled(False)
+        self._cancel_pending.setEnabled(False)
+        self._confirm_action.setText("Confirming…")
+        self.intent_emitted.emit(intent)
 
     def _on_action_selected(self, index: int) -> None:
         if not self._valid_index(index):
@@ -645,6 +747,10 @@ class MissionBuilderWidget(QWidget):
         action = self._snapshot.actions[index]
         self._editing_index = index
         self._pending_point = action.point
+        self._hold_time.clear()
+        self._radius.clear()
+        self._pending_error.setVisible(False)
+        self._clear_success()
         self._pending_title.setText(f"Edit point {index + 1}")
         self._pending_coordinates.setText(_format_point(action.point))
         if isinstance(action, ProceedAction):
@@ -667,13 +773,18 @@ class MissionBuilderWidget(QWidget):
             altitude_m = action.approach_altitude_m
         self._altitude.setText(f"{altitude_m:g}")
         self._pending_panel.setVisible(True)
+        self._pending_error.setVisible(False)
         self._refresh_map()
+        self._ensure_visible(self._pending_panel)
 
     def _clear_pending(self) -> None:
         self._pending_point = None
         self._editing_index = None
         self._action_kind.setEnabled(True)
         self._pending_panel.setVisible(False)
+        self._pending_error.setVisible(False)
+        for field in (self._altitude, self._hold_time, self._radius, self._action_kind):
+            field.setAccessibleDescription("")
         self._clear_error()
         self._refresh_map()
 
@@ -746,10 +857,71 @@ class MissionBuilderWidget(QWidget):
     def _show_error(self, message: str) -> None:
         self._error.setText(message)
         self._error.setVisible(True)
+        self._ensure_visible(self._error)
 
     def _clear_error(self) -> None:
         self._error.clear()
         self._error.setVisible(False)
+
+    def _show_takeoff_error(self, message: str, field: QWidget) -> None:
+        self._takeoff_error.setText(message)
+        self._takeoff_error.setVisible(True)
+        self._focus_invalid(field, message)
+        self._ensure_visible(self._takeoff_error)
+
+    def _show_pending_error(self, message: str, field: QWidget) -> None:
+        self._pending_error.setText(message)
+        self._pending_error.setVisible(True)
+        self._focus_invalid(field, message)
+        self._ensure_visible(self._pending_error)
+
+    def _focus_invalid(self, field: QWidget, message: str) -> None:
+        field.setAccessibleDescription(message)
+        field.setFocus(Qt.FocusReason.OtherFocusReason)
+        if isinstance(field, QLineEdit):
+            field.selectAll()
+        self._ensure_visible(field)
+
+    def _ensure_visible(self, widget: QWidget) -> None:
+        QTimer.singleShot(
+            0,
+            self,
+            lambda: self._side_scroll.ensureWidgetVisible(widget, 12, 12),
+        )
+
+    def _show_success(self, message: str) -> None:
+        self._success.setText(message)
+        self._success.setVisible(True)
+        self._action_list.scrollToBottom()
+        self._success.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._ensure_visible(self._success)
+
+    def _clear_success(self) -> None:
+        self._success.clear()
+        self._success.setVisible(False)
+
+    def _finish_pending_commit(self) -> None:
+        self._pending_commit = None
+        self._confirm_action.setText("Confirm point")
+        self._confirm_action.setEnabled(True)
+        self._cancel_pending.setEnabled(True)
+
+    def _commit_is_reflected(self, snapshot: MissionBuilderSnapshot) -> bool:
+        commit = self._pending_commit
+        if commit is None or snapshot.error_message is not None:
+            return False
+        intent = commit.intent
+        if isinstance(intent, ActionAppendRequested):
+            return (
+                len(snapshot.actions) == len(commit.prior_actions) + 1
+                and snapshot.actions[:-1] == commit.prior_actions
+                and snapshot.actions[-1] == intent.action
+            )
+        return (
+            len(snapshot.actions) == len(commit.prior_actions)
+            and 0 <= intent.index < len(snapshot.actions)
+            and snapshot.actions[intent.index] == intent.action
+        )
 
     def _valid_index(self, index: int) -> bool:
         return 0 <= index < len(self._snapshot.actions)
@@ -780,10 +952,20 @@ def _field_label(text: str) -> QLabel:
     return label
 
 
-def _number_input(name: str, placeholder: str) -> QLineEdit:
+def _inline_error(name: str, accessible_name: str) -> QLabel:
+    label = QLabel()
+    label.setObjectName(name)
+    label.setAccessibleName(accessible_name)
+    label.setWordWrap(True)
+    label.setProperty("role", "inlineError")
+    label.setVisible(False)
+    return label
+
+
+def _number_input(name: str, placeholder: str, accessible_name: str) -> QLineEdit:
     field = QLineEdit()
     field.setObjectName(name)
-    field.setAccessibleName(name.replace("Input", "").replace("Action", "Action "))
+    field.setAccessibleName(accessible_name)
     field.setPlaceholderText(placeholder)
     field.setClearButtonEnabled(True)
     return field
@@ -819,6 +1001,16 @@ def _action_list_text(index: int, action: MissionAction) -> str:
     if isinstance(action, CircleAction):
         return f"{sequence}. Circle CW  •  {action.altitude_m:g} m  •  r {action.radius_m:g} m"
     return f"{sequence}. Land  •  approach {action.approach_altitude_m:g} m"
+
+
+def _action_name(action: MissionAction) -> str:
+    if isinstance(action, ProceedAction):
+        return "Proceed"
+    if isinstance(action, HoldAction):
+        return "Hold"
+    if isinstance(action, CircleAction):
+        return "Circle"
+    return "Land"
 
 
 def _action_summary(index: int, action: MissionAction) -> str:
@@ -922,6 +1114,22 @@ QLabel#builderError {
     border: 1px solid #efc6bf;
     border-radius: 8px;
     padding: 9px;
+}
+QLabel[role="inlineError"] {
+    background: #fff0ed;
+    color: #8d2e25;
+    border: 1px solid #efc6bf;
+    border-radius: 8px;
+    padding: 7px;
+    font-weight: 600;
+}
+QLabel#builderSuccess {
+    background: #e7f5ee;
+    color: #155b3d;
+    border: 1px solid #a8d8c1;
+    border-radius: 8px;
+    padding: 8px;
+    font-weight: 700;
 }
 QLabel#missionSummary {
     background: #f1f6f5;

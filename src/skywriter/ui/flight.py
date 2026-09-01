@@ -100,6 +100,7 @@ class FlightTelemetryWidget(QWidget):
         self._begin_land_confirmation: Callable[[], NativeLandHereNowSnapshot] | None = None
         self._cancel_land_confirmation: Callable[[], NativeLandHereNowSnapshot] | None = None
         self._telemetry_native_messages: tuple[tuple[int, str], ...] = ()
+        self._interaction_unavailable_reason: str | None = None
         self.setObjectName("flightTelemetryView")
         root = QVBoxLayout(self)
         heading = QLabel("Flight telemetry")
@@ -117,6 +118,15 @@ class FlightTelemetryWidget(QWidget):
         )
         root.addWidget(heading)
         root.addWidget(disclaimer)
+        self._interaction_gate = QLabel()
+        self._interaction_gate.setObjectName("flightInteractionGate")
+        self._interaction_gate.setAccessibleName("Flight controls unavailable explanation")
+        self._interaction_gate.setWordWrap(True)
+        self._interaction_gate.setStyleSheet(
+            "padding: 9px; background: #e5f0f6; color: #17435a; font-weight: 700;"
+        )
+        self._interaction_gate.setVisible(False)
+        root.addWidget(self._interaction_gate)
 
         start_panel = QFrame()
         start_panel.setObjectName("nativeAutoStartPanel")
@@ -283,6 +293,16 @@ class FlightTelemetryWidget(QWidget):
         self.render_land_here_now(self._land_here_now)
         self.render_snapshot(None, now_s=0.0)
 
+    def set_interaction_unavailable(self, reason: str) -> None:
+        """Disable flight actions when no production vehicle controller is composed."""
+
+        if not reason.strip():
+            raise ValueError("interaction-unavailable reason must not be empty")
+        self._interaction_unavailable_reason = reason
+        self._interaction_gate.setText(reason)
+        self._interaction_gate.setVisible(True)
+        self._apply_interaction_gate()
+
     def _emit_auto_start_request(self) -> None:
         self._auto_start_button.setEnabled(False)
         self.intent_emitted.emit(NativeAutoStartRequested())
@@ -414,6 +434,7 @@ class FlightTelemetryWidget(QWidget):
             and snapshot.state is not NativeAutoStartState.PENDING
             and snapshot.state is not NativeAutoStartState.RUNNING
         )
+        self._apply_interaction_gate()
         self._render_native_messages()
 
     @property
@@ -435,6 +456,7 @@ class FlightTelemetryWidget(QWidget):
         )
         self._pause_button.setEnabled(snapshot.pause_available and not pending)
         self._resume_button.setEnabled(snapshot.resume_available and not pending)
+        self._apply_interaction_gate()
         self._render_native_messages()
 
     @property
@@ -456,12 +478,28 @@ class FlightTelemetryWidget(QWidget):
         self._land_here_now_button.setEnabled(snapshot.request_available)
         self._land_confirm_button.setEnabled(snapshot.confirm_available)
         self._land_cancel_button.setEnabled(snapshot.cancel_available)
+        self._apply_interaction_gate()
         self._render_native_messages()
 
     def _set_land_controls_enabled(self, enabled: bool) -> None:
         self._land_here_now_button.setEnabled(enabled)
         self._land_confirm_button.setEnabled(enabled)
         self._land_cancel_button.setEnabled(enabled)
+
+    def _apply_interaction_gate(self) -> None:
+        reason = self._interaction_unavailable_reason
+        if reason is None:
+            return
+        for control in (
+            self._auto_start_button,
+            self._pause_button,
+            self._resume_button,
+            self._land_here_now_button,
+            self._land_confirm_button,
+            self._land_cancel_button,
+        ):
+            control.setEnabled(False)
+            control.setToolTip(reason)
 
     @property
     def map_layers_widget(self) -> TelemetryMapLayersWidget:
@@ -579,7 +617,7 @@ def _measurement(value: int | float | None, unit: str) -> str:
 
 def _auto_start_state_text(state: NativeAutoStartState) -> str:
     return {
-        NativeAutoStartState.IDLE: "Ready for one native mission-start request",
+        NativeAutoStartState.IDLE: "AUTO start has not been requested — readiness gate is blocked",
         NativeAutoStartState.PENDING: "Start Mission pending — controls locked",
         NativeAutoStartState.RUNNING: "Running — ACK, armed AUTO, and progress confirmed",
         NativeAutoStartState.REJECTED: "Mission start rejected by ArduCopter",

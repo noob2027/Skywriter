@@ -168,3 +168,60 @@ def test_packaged_visual_smoke_is_hardware_blocked_and_renderer_owned(
     assert "SKYWRITER_PACKAGED_SMOKE_TILE_ORIGIN" in installer_smoke
     assert "QTWEBENGINE_CHROMIUM_FLAGS" not in installer_smoke
     assert "--no-sandbox" not in installer_smoke
+
+
+def test_installed_ui_acceptance_uses_shortcut_safe_paths_and_hardware_guard(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_run(
+        arguments: Sequence[str] | None = None,
+        *,
+        close_after_ms: int | None = None,
+        packaged_smoke: bool = False,
+        packaged_visual_smoke: bool = False,
+        packaged_ui_acceptance: bool = False,
+    ) -> int:
+        observed.update(
+            arguments=arguments,
+            close_after_ms=close_after_ms,
+            packaged_smoke=packaged_smoke,
+            packaged_visual_smoke=packaged_visual_smoke,
+            packaged_ui_acceptance=packaged_ui_acceptance,
+        )
+        return 0
+
+    monkeypatch.setattr(main_module, "run", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["SKYWriter.exe", main_module.PACKAGED_UI_ACCEPTANCE_ARGUMENT],
+    )
+    monkeypatch.setenv(main_module.PACKAGED_UI_ACCEPTANCE_EVIDENCE_ENVIRONMENT, str(tmp_path))
+    monkeypatch.delenv(main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT, raising=False)
+
+    assert main_module.main() == 0
+    assert observed == {
+        "arguments": ["SKYWriter.exe"],
+        "close_after_ms": None,
+        "packaged_smoke": False,
+        "packaged_visual_smoke": False,
+        "packaged_ui_acceptance": True,
+    }
+    assert os.environ[main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT] == "1"
+
+    installer_smoke = (REPOSITORY_ROOT / "packaging/windows/test-installer.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "Start-Process -FilePath $shortcut" in installer_smoke
+    assert "SKYWRITER_INSTALLED_UI_EVIDENCE" in installer_smoke
+    assert "vehicle_io.attempts -ne 0" in installer_smoke
+    assert "installed-ui-acceptance.json" in installer_smoke
+    install_start = installer_smoke.index("Start-Process -FilePath $installer")
+    outer_try = installer_smoke.rfind("try {", 0, install_start)
+    outer_finally = installer_smoke.rfind("finally {")
+    assert outer_try >= 0
+    assert outer_finally > install_start
+    assert "Test-Path -LiteralPath $uninstaller -PathType Leaf" in installer_smoke

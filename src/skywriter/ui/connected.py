@@ -95,12 +95,21 @@ class ConnectedMissionWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("connectedMissionWidget")
         self._snapshot = ConnectedMissionSnapshot()
+        self._interaction_unavailable_reason: str | None = None
         self._build_ui()
         self.render_snapshot(self._snapshot)
 
     @property
     def snapshot(self) -> ConnectedMissionSnapshot:
         return self._snapshot
+
+    def set_interaction_unavailable(self, reason: str) -> None:
+        """Render an honest gate when no production vehicle controller is composed."""
+
+        if not reason.strip():
+            raise ValueError("interaction-unavailable reason must not be empty")
+        self._interaction_unavailable_reason = reason
+        self.render_snapshot(self._snapshot)
 
     def render_snapshot(self, snapshot: ConnectedMissionSnapshot) -> None:
         self._snapshot = snapshot
@@ -152,6 +161,23 @@ class ConnectedMissionWidget(QWidget):
             is_sik and snapshot.verification_state is ConnectedVerificationState.REVERIFY_REQUIRED
         )
         self._disconnect.setEnabled(snapshot.link_connected)
+        gated = self._interaction_unavailable_reason is not None
+        self._interaction_gate.setText(self._interaction_unavailable_reason or "")
+        self._interaction_gate.setVisible(gated)
+        if gated:
+            for control in (
+                self._discover_usb,
+                self._discover_sik,
+                self._target,
+                self._inspect,
+                self._replacement,
+                self._upload,
+                self._refresh,
+                self._reverify,
+                self._disconnect,
+            ):
+                control.setEnabled(False)
+                control.setToolTip(self._interaction_unavailable_reason or "")
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -169,6 +195,15 @@ class ConnectedMissionWidget(QWidget):
         safety.setWordWrap(True)
         safety.setStyleSheet("padding: 10px; background: #fff3cd; color: #664d03;")
         root.addWidget(safety)
+        self._interaction_gate = QLabel()
+        self._interaction_gate.setObjectName("connectedInteractionGate")
+        self._interaction_gate.setAccessibleName("Connected controls unavailable explanation")
+        self._interaction_gate.setWordWrap(True)
+        self._interaction_gate.setStyleSheet(
+            "padding: 10px; background: #e5f0f6; color: #17435a; font-weight: 700;"
+        )
+        self._interaction_gate.setVisible(False)
+        root.addWidget(self._interaction_gate)
 
         status = QFrame()
         status.setFrameShape(QFrame.Shape.StyledPanel)

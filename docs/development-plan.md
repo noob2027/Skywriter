@@ -204,6 +204,14 @@ with controlled-tile pixel evidence and visible Leaflet-control checks. It chang
 provider boundary, mission behavior, MAVLink path, vehicle state, or flight command. See
 [`codex-tasks/108-windows-webengine-black-surface.md`](../codex-tasks/108-windows-webengine-black-surface.md).
 
+Task 109 follows accepted Task 108 and promotes installed human-path evidence to a release
+gate. It repairs visible field validation and transactional editor retention, audits every
+visible control, makes unbound hardware controls honestly unavailable, and drives the exact
+installed Start-menu target at bounded desktop sizes with zero vehicle-I/O attempts. It
+changes no MAVLink command, compiler, telemetry, vehicle, or firmware architecture. See
+[`codex-tasks/109-installed-ui-triage.md`](../codex-tasks/109-installed-ui-triage.md) and
+[`docs/task-109-control-triage.md`](task-109-control-triage.md).
+
 ## 10. Validation ladder
 
 ### Gate A — automated offline
