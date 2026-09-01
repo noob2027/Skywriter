@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' qrc:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; connect-src https://tile.openstreetmap.org; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' qrc:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org http://127.0.0.1:* http://localhost:*; connect-src https://tile.openstreetmap.org http://127.0.0.1:* http://localhost:*; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
     <title>SKYWriter mission map</title>
     <link rel="stylesheet" href="vendor/leaflet-1.9.4/leaflet.css">
     <link rel="stylesheet" href="map.css">
@@ -12,7 +12,7 @@
     <main aria-label="Interactive mission route map">
       <header>
         <strong>MISSION ROUTE MAP</strong>
-        <span id="provider-status">No basemap · offline</span>
+        <span id="provider-status" data-state="offline">Offline · local planning grid</span>
       </header>
       <div id="mission-map" tabindex="0" role="application" aria-label="Mission coordinates and route"></div>
       <p id="status" role="status" aria-live="polite">Connecting the local map bridge.</p>

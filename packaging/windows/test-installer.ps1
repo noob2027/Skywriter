@@ -46,9 +46,12 @@ if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) {
 
 $previousPlatform = $env:QT_QPA_PLATFORM
 $previousFlags = $env:QTWEBENGINE_CHROMIUM_FLAGS
+$previousEvidence = $env:SKYWRITER_PACKAGED_SMOKE_EVIDENCE
+$smokeEvidence = Join-Path $working "packaged-map-smoke.json"
 try {
     $env:QT_QPA_PLATFORM = "offscreen"
     $env:QTWEBENGINE_CHROMIUM_FLAGS = "--disable-gpu"
+    $env:SKYWRITER_PACKAGED_SMOKE_EVIDENCE = $smokeEvidence
     Push-Location $env:SystemRoot
     try {
         $smoke = Start-Process -FilePath $application -ArgumentList "--packaged-smoke-test" -Wait -PassThru -WindowStyle Hidden
@@ -59,10 +62,26 @@ try {
     if ($smoke.ExitCode -ne 0) {
         throw "Packaged application launch smoke failed with exit code $($smoke.ExitCode)."
     }
+    if (-not (Test-Path -LiteralPath $smokeEvidence -PathType Leaf)) {
+        throw "Packaged application did not write mounted-map smoke evidence."
+    }
+    $mapEvidence = Get-Content -LiteralPath $smokeEvidence -Raw | ConvertFrom-Json
+    if (
+        -not $mapEvidence.ready -or
+        $mapEvidence.leaflet_version -ne "1.9.4" -or
+        $mapEvidence.container_width_px -le 0 -or
+        $mapEvidence.container_height_px -le 0 -or
+        -not $mapEvidence.map_document_exists -or
+        $mapEvidence.provider -ne "offline" -or
+        -not $mapEvidence.vehicle_io_blocked
+    ) {
+        throw "Packaged application map readiness evidence failed validation."
+    }
 }
 finally {
     $env:QT_QPA_PLATFORM = $previousPlatform
     $env:QTWEBENGINE_CHROMIUM_FLAGS = $previousFlags
+    $env:SKYWRITER_PACKAGED_SMOKE_EVIDENCE = $previousEvidence
 }
 
 $uninstallArguments = @(
@@ -82,4 +101,4 @@ if (Test-Path -LiteralPath $shortcut) {
     throw "Start-menu shortcut remained after uninstall: $shortcut"
 }
 
-Write-Host "Install, arbitrary-working-directory launch, Start-menu shortcut, and uninstall smoke passed."
+Write-Host "Install, mounted-map readiness from an arbitrary working directory, Start-menu shortcut, and uninstall smoke passed."

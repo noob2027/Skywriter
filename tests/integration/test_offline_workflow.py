@@ -146,7 +146,7 @@ def test_complete_offline_create_edit_save_load_compile_and_map_visuals(
     host.bridge.receive_message(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "type": "point_dragged",
                 "index": 0,
                 "point": {"latitude_deg": 51.5008, "longitude_deg": -0.1247},

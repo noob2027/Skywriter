@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import NoReturn, TypeAlias, cast
+from typing import NoReturn, TypeAlias, TypeVar, cast
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from skywriter.domain.mission import GeoPoint
 
-BRIDGE_SCHEMA_VERSION = 1
+BRIDGE_SCHEMA_VERSION = 2
 JsonObject: TypeAlias = dict[str, object]
+EnumT = TypeVar("EnumT", bound=StrEnum)
+_DECIMAL_COORDINATE = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)\Z")
 
 
 class MapBridgeError(ValueError):
@@ -50,7 +53,41 @@ class ViewportChanged:
     north_east: GeoPoint
 
 
-MapIntent: TypeAlias = MapClicked | PointDragged | PointSelected | ViewportChanged
+class ProviderState(StrEnum):
+    """Observable basemap states reported by mounted map content."""
+
+    OFFLINE = "offline"
+    LOADING = "loading"
+    ONLINE = "online"
+    PARTIAL = "partial"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderStatusChanged:
+    """Correlated tile outcome counters for one deliberate provider attempt."""
+
+    provider: TileProvider
+    attempt_id: int
+    state: ProviderState
+    requested_tiles: int
+    loaded_tiles: int
+    error_tiles: int
+    pending_tiles: int
+
+
+@dataclass(frozen=True, slots=True)
+class MapReady:
+    """Proof that packaged Leaflet mounted into a visible map container."""
+
+    leaflet_version: str
+    container_width_px: float
+    container_height_px: float
+
+
+MapIntent: TypeAlias = (
+    MapClicked | PointDragged | PointSelected | ViewportChanged | ProviderStatusChanged | MapReady
+)
 
 
 class RenderActionKind(StrEnum):
@@ -89,6 +126,7 @@ class RenderModel:
     actions: tuple[RenderAction, ...] = ()
     pending_point: GeoPoint | None = None
     tile_provider: TileProvider = TileProvider.OFFLINE
+    tile_attempt_id: int = 0
     drag_threshold_px: int = 10
 
 
@@ -154,6 +192,24 @@ def parse_map_intent(payload: str) -> MapIntent:
             "south_west",
             "north_east",
         },
+        "provider_status_changed": {
+            "schema_version",
+            "type",
+            "provider",
+            "attempt_id",
+            "state",
+            "requested_tiles",
+            "loaded_tiles",
+            "error_tiles",
+            "pending_tiles",
+        },
+        "map_ready": {
+            "schema_version",
+            "type",
+            "leaflet_version",
+            "container_width_px",
+            "container_height_px",
+        },
     }
     if message_type not in expected_fields:
         raise MapBridgeError(f"$.type: unknown map intent {message_type!r}")
@@ -173,6 +229,41 @@ def parse_map_intent(payload: str) -> MapIntent:
         )
     if message_type == "point_selected":
         return PointSelected(_expect_index(root["index"], "$.index"))
+    if message_type == "provider_status_changed":
+        provider = _expect_enum(TileProvider, root["provider"], "$.provider")
+        state = _expect_enum(ProviderState, root["state"], "$.state")
+        attempt_id = _expect_index(root["attempt_id"], "$.attempt_id")
+        requested = _expect_index(root["requested_tiles"], "$.requested_tiles")
+        loaded = _expect_index(root["loaded_tiles"], "$.loaded_tiles")
+        errors = _expect_index(root["error_tiles"], "$.error_tiles")
+        pending = _expect_index(root["pending_tiles"], "$.pending_tiles")
+        if loaded + errors + pending != requested:
+            raise MapBridgeError("$: tile counters must add up to requested_tiles")
+        if provider is TileProvider.OFFLINE:
+            if state is not ProviderState.OFFLINE or any(
+                (attempt_id, requested, loaded, errors, pending)
+            ):
+                raise MapBridgeError("$: offline provider status must have zero counters")
+        elif state is ProviderState.OFFLINE or attempt_id < 1:
+            raise MapBridgeError("$: network provider status requires a positive attempt_id")
+        return ProviderStatusChanged(
+            provider=provider,
+            attempt_id=attempt_id,
+            state=state,
+            requested_tiles=requested,
+            loaded_tiles=loaded,
+            error_tiles=errors,
+            pending_tiles=pending,
+        )
+    if message_type == "map_ready":
+        leaflet_version = _expect_string(root["leaflet_version"], "$.leaflet_version")
+        if leaflet_version != "1.9.4":
+            raise MapBridgeError("$.leaflet_version: expected pinned Leaflet 1.9.4")
+        width = _expect_number(root["container_width_px"], "$.container_width_px")
+        height = _expect_number(root["container_height_px"], "$.container_height_px")
+        if width <= 0 or height <= 0:
+            raise MapBridgeError("$: mounted map container must have positive dimensions")
+        return MapReady(leaflet_version, width, height)
 
     south_west = _point_from_value(root["south_west"], "$.south_west")
     north_east = _point_from_value(root["north_east"], "$.north_east")
@@ -190,6 +281,14 @@ def encode_render_message(model: RenderModel) -> str:
         raise MapBridgeError("drag_threshold_px must be an integer")
     if model.drag_threshold_px < 1:
         raise MapBridgeError("drag_threshold_px must be positive")
+    if isinstance(model.tile_attempt_id, bool) or not isinstance(model.tile_attempt_id, int):
+        raise MapBridgeError("tile_attempt_id must be an integer")
+    if model.tile_attempt_id < 0:
+        raise MapBridgeError("tile_attempt_id must not be negative")
+    if model.tile_provider is TileProvider.OFFLINE and model.tile_attempt_id != 0:
+        raise MapBridgeError("offline tile provider requires tile_attempt_id zero")
+    if model.tile_provider is TileProvider.OPENSTREETMAP and model.tile_attempt_id < 1:
+        raise MapBridgeError("OpenStreetMap requires a positive tile_attempt_id")
     sequences: set[int] = set()
     actions: list[JsonObject] = []
     for expected_sequence, action in enumerate(model.actions, start=1):
@@ -233,6 +332,7 @@ def encode_render_message(model: RenderModel) -> str:
             "actions": actions,
             "pending_point": pending,
             "tile_provider": model.tile_provider.value,
+            "tile_attempt_id": model.tile_attempt_id,
             "drag_threshold_px": model.drag_threshold_px,
         },
         separators=(",", ":"),
@@ -287,6 +387,14 @@ def _expect_string(value: object, path: str) -> str:
     return value
 
 
+def _expect_enum(enum_type: type[EnumT], value: object, path: str) -> EnumT:
+    parsed = _expect_string(value, path)
+    try:
+        return enum_type(parsed)
+    except ValueError as error:
+        raise MapBridgeError(f"{path}: unknown value {parsed!r}") from error
+
+
 def _expect_number(value: object, path: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         raise MapBridgeError(f"{path}: expected a finite number")
@@ -323,3 +431,23 @@ def _is_positive_finite_number(value: object) -> bool:
         and math.isfinite(value)
         and value > 0
     )
+
+
+def parse_coordinate_input(latitude_text: str, longitude_text: str) -> GeoPoint:
+    """Parse strict decimal latitude/longitude text for an explicit recenter action."""
+
+    latitude = _parse_decimal_coordinate(latitude_text, "Latitude", -90.0, 90.0)
+    longitude = _parse_decimal_coordinate(longitude_text, "Longitude", -180.0, 180.0)
+    return GeoPoint(latitude, longitude)
+
+
+def _parse_decimal_coordinate(text: str, label: str, minimum: float, maximum: float) -> float:
+    stripped = text.strip()
+    if not stripped:
+        raise MapBridgeError(f"{label} is required.")
+    if _DECIMAL_COORDINATE.fullmatch(stripped) is None:
+        raise MapBridgeError(f"{label} must be a decimal number without symbols or letters.")
+    value = float(stripped)
+    if not minimum <= value <= maximum:
+        raise MapBridgeError(f"{label} must be between {minimum:g} and {maximum:g} degrees.")
+    return value

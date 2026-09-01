@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$PythonPath = "python",
-    [string]$BuildRoot = (Join-Path ([System.IO.Path]::GetTempPath()) "skywriter-task106-build"),
+    [string]$BuildRoot = (Join-Path ([System.IO.Path]::GetTempPath()) "skywriter-task107-build"),
     [string]$OutputDirectory = (Join-Path $PSScriptRoot "..\..\artifacts\windows"),
     [string]$InnoSetupCompiler = "",
     [switch]$SkipInstallerSmoke
@@ -21,8 +21,8 @@ $outputPath = [System.IO.Path]::GetFullPath($OutputDirectory)
 function Assert-SafeBuildPath([string]$Path) {
     $root = [System.IO.Path]::GetPathRoot($Path)
     $leaf = Split-Path -Leaf $Path
-    if ($Path -eq $root -or $Path -eq $repositoryRoot -or $leaf -notmatch "skywriter|sw106") {
-        throw "BuildRoot must be a dedicated path whose name contains 'skywriter' or 'sw106': $Path"
+    if ($Path -eq $root -or $Path -eq $repositoryRoot -or $leaf -notmatch "skywriter|sw10[67]") {
+        throw "BuildRoot must be a dedicated path whose name contains 'skywriter', 'sw106', or 'sw107': $Path"
     }
 }
 

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
+from base64 import b64decode
 from collections.abc import Callable
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TypeVar, cast
 
+import pytest
 from PySide6.QtCore import QPoint, Qt, QUrl
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWebEngineCore import QWebEnginePage
@@ -21,10 +25,54 @@ from skywriter.domain.mission import (
     ProceedAction,
 )
 from skywriter.main import create_application
-from skywriter.ui.map import MissionMapHost
-from skywriter.ui.map.bridge import ViewportChanged
+from skywriter.ui.map import MissionMapHost, ProviderState, TileProvider
+from skywriter.ui.map.bridge import (
+    BRIDGE_SCHEMA_VERSION,
+    ProviderStatusChanged,
+    ViewportChanged,
+)
 
 T = TypeVar("T")
+_PNG_TILE = b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
+
+
+class ControlledTileServer(ThreadingHTTPServer):
+    status_code = 200
+    request_paths: list[str]
+    user_agents: list[str]
+
+    def __init__(self) -> None:
+        super().__init__(("127.0.0.1", 0), ControlledTileHandler)
+        self.request_paths = []
+        self.user_agents = []
+
+    @property
+    def origin(self) -> QUrl:
+        host, port = cast(tuple[str, int], self.server_address)
+        return QUrl(f"http://{host}:{port}")
+
+
+class ControlledTileHandler(BaseHTTPRequestHandler):
+    server: ControlledTileServer
+
+    def do_GET(self) -> None:  # noqa: N802
+        self.server.request_paths.append(self.path)
+        self.server.user_agents.append(self.headers.get("User-Agent", ""))
+        self.send_response(self.server.status_code)
+        if self.server.status_code == 200:
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Cache-Control", "public, max-age=604800")
+            self.send_header("Content-Length", str(len(_PNG_TILE)))
+            self.end_headers()
+            self.wfile.write(_PNG_TILE)
+        else:
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        del format, args
 
 
 def wait_until(predicate: Callable[[], bool], *, timeout_ms: int = 8_000) -> None:
@@ -57,9 +105,9 @@ def evaluate_json(host: MissionMapHost, expression: str) -> object:
     return json.loads(value)
 
 
-def make_host() -> MissionMapHost:
+def make_host(test_tile_origin: QUrl | None = None) -> MissionMapHost:
     create_application(["skywriter-map-host-test"])
-    host = MissionMapHost()
+    host = MissionMapHost(test_tile_origin=test_tile_origin)
     host.resize(900, 620)
     host.show()
     wait_until(
@@ -164,9 +212,163 @@ def test_production_host_loads_packaged_leaflet_and_blocks_navigation() -> None:
     assert not any(source.startswith("http") for source in scripts)
     assert host.url().isLocalFile()
     assert Path(host.url().toLocalFile()).parent == host.static_root
+    viewport = cast(
+        dict[str, object], evaluate_json(host, "window.skywriterMapTest.geographicViewport()")
+    )
+    assert viewport == {
+        "center": {"latitude_deg": 0, "longitude_deg": 0},
+        "zoom": 2,
+    }
     assert not host.page().acceptNavigationRequest(
         QUrl("https://example.com/escape"), navigation_type, True
     )
+    host.close()
+
+
+def test_leaflet_tracks_a_resized_webengine_viewport() -> None:
+    host = make_host()
+    host.resize(1200, 760)
+
+    latest: dict[str, object] = {}
+
+    def leaflet_matches_container() -> bool:
+        nonlocal latest
+        latest = cast(
+            dict[str, object],
+            evaluate_json(host, "window.skywriterMapTest.snapshot()"),
+        )
+        return (
+            abs(cast(float, latest["leaflet_width"]) - cast(float, latest["container_width"])) <= 2
+            and abs(cast(float, latest["leaflet_height"]) - cast(float, latest["container_height"]))
+            <= 2
+            and cast(float, latest["container_width"]) > 900
+            and cast(float, latest["container_height"]) > 620
+        )
+
+    try:
+        wait_until(leaflet_matches_container)
+    except AssertionError as error:
+        raise AssertionError(f"Leaflet retained a stale viewport after resize: {latest}") from error
+    finally:
+        host.close()
+
+
+def test_controlled_tiles_prove_loading_online_offline_and_retry_without_public_osm() -> None:
+    server = ControlledTileServer()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host = make_host(server.origin)
+    try:
+        QTest.qWait(150)
+        assert server.request_paths == []
+        assert host.provider_status.state is ProviderState.OFFLINE
+        host.set_tile_provider(TileProvider.OPENSTREETMAP)
+        wait_until(
+            lambda: (
+                host.provider_status.state is ProviderState.ONLINE
+                and host.provider_status.pending_tiles == 0
+            )
+        )
+        first = host.provider_status
+
+        assert first.attempt_id == 1
+        assert first.requested_tiles > 0
+        assert first.loaded_tiles == first.requested_tiles
+        assert first.error_tiles == 0
+        assert server.request_paths
+        assert all(path.count("/") == 3 and path.endswith(".png") for path in server.request_paths)
+        assert set(server.user_agents) == {
+            "SKYWriter/0.1.1 (+https://github.com/noob2027/Skywriter)"
+        }
+        assert "OpenStreetMap contributors" in cast(
+            str,
+            evaluate(host, "document.querySelector('.leaflet-control-attribution').textContent"),
+        )
+
+        host.resize(1200, 760)
+        wait_until(
+            lambda: (
+                host.provider_status.state is ProviderState.ONLINE
+                and host.provider_status.pending_tiles == 0
+                and host.provider_status.loaded_tiles + host.provider_status.error_tiles
+                == host.provider_status.requested_tiles
+            )
+        )
+
+        host.retry_tiles()
+        wait_until(
+            lambda: (
+                host.provider_status.attempt_id == 2
+                and host.provider_status.state is ProviderState.ONLINE
+            )
+        )
+        assert host.provider_status.loaded_tiles > 0
+
+        host.set_tile_provider(TileProvider.OFFLINE)
+        wait_until(lambda: host.provider_status.state is ProviderState.OFFLINE)
+        assert host.provider_status == ProviderStatusChanged(
+            TileProvider.OFFLINE, 0, ProviderState.OFFLINE, 0, 0, 0, 0
+        )
+        assert evaluate(host, "document.querySelectorAll('.leaflet-tile').length") == 0
+    finally:
+        host.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_controlled_tile_failure_is_actionable_and_retry_can_recover() -> None:
+    server = ControlledTileServer()
+    server.status_code = 503
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host = make_host(server.origin)
+    try:
+        host.set_tile_provider(TileProvider.OPENSTREETMAP)
+        wait_until(lambda: host.provider_status.state is ProviderState.UNAVAILABLE)
+        failed = host.provider_status
+        assert failed.attempt_id == 1
+        assert failed.loaded_tiles == 0
+        assert failed.error_tiles > 0
+
+        server.status_code = 200
+        host.retry_tiles()
+        wait_until(
+            lambda: (
+                host.provider_status.attempt_id == 2
+                and host.provider_status.state is ProviderState.ONLINE
+            )
+        )
+        assert host.provider_status.loaded_tiles > 0
+    finally:
+        host.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_operator_recenter_moves_neutral_viewport_without_creating_a_mission_point() -> None:
+    host = make_host()
+    clicked: list[GeoPoint] = []
+    host.map_clicked.connect(clicked.append)
+
+    host.recenter(GeoPoint(-33.8688, 151.2093))
+    wait_until(
+        lambda: (
+            cast(
+                dict[str, object],
+                evaluate_json(host, "window.skywriterMapTest.geographicViewport()"),
+            )["zoom"]
+            == 15
+        )
+    )
+    viewport = cast(
+        dict[str, object], evaluate_json(host, "window.skywriterMapTest.geographicViewport()")
+    )
+    center = cast(dict[str, float], viewport["center"])
+    assert center["latitude_deg"] == pytest.approx(-33.8688)
+    assert center["longitude_deg"] == pytest.approx(151.2093)
+    assert clicked == []
     host.close()
 
 
@@ -366,7 +568,13 @@ def test_drag_released_outside_map_and_invalid_indices_fail_closed() -> None:
     assert dragged == []
 
     host.bridge.receive_message(
-        json.dumps({"schema_version": 1, "type": "point_selected", "index": 9})
+        json.dumps(
+            {
+                "schema_version": BRIDGE_SCHEMA_VERSION,
+                "type": "point_selected",
+                "index": 9,
+            }
+        )
     )
     wait_until(lambda: len(rejected) == 1)
     assert "outside render snapshot" in rejected[0]
