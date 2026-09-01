@@ -247,9 +247,9 @@ remain visibly disabled in this unbound shell and acceptance records zero vehicl
 attempts. See the complete
 [`installed-control triage`](docs/task-109-control-triage.md).
 
-The verified Task 109 artifact is `SKYWriter-Prototype-Setup-0.1.3.exe`, 152,301,811
+The verified Task 109 artifact is `SKYWriter-Prototype-Setup-0.1.3.exe`, 152,292,804
 bytes, SHA-256
-`7e0f4a96e18b0f1f07c3d4c4f3ded1c9405bfabbb1551ba08c784873a52f28a5`. It is unsigned,
+`5232AB78A14A92C9FD244AF5888CB2EA38040FD519FCED7BE3468A5439E24E4D`. It is unsigned,
 so SmartScreen/reputation warnings remain expected.
 
 Builds are unsigned unless explicit signing secrets are configured and may trigger
