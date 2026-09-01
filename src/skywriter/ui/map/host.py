@@ -51,6 +51,8 @@ _MAP_DOCUMENT = _STATIC_ROOT / "map.html"
 _OSM_HOST = "tile.openstreetmap.org"
 _MAP_CACHE_BYTES = 128 * 1024 * 1024
 _MAP_CACHE_ROOT_ENVIRONMENT = "SKYWRITER_MAP_CACHE_ROOT"
+_PACKAGED_SMOKE_TEST_ENVIRONMENT = "SKYWRITER_PACKAGED_SMOKE_TEST"
+_PACKAGED_SMOKE_TILE_ORIGIN_ENVIRONMENT = "SKYWRITER_PACKAGED_SMOKE_TILE_ORIGIN"
 LOGGER = logging.getLogger("skywriter.ui.map")
 
 
@@ -143,6 +145,8 @@ class MissionMapHost(QWebEngineView):
         test_tile_timeout_ms: int = 1_500,
     ) -> None:
         super().__init__()
+        if test_tile_origin is None:
+            test_tile_origin = _packaged_smoke_tile_origin()
         _validate_test_tile_origin(test_tile_origin)
         if (
             isinstance(test_tile_timeout_ms, bool)
@@ -456,3 +460,12 @@ def _validate_test_tile_origin(origin: QUrl | None) -> None:
         or origin.password()
     ):
         raise ValueError("test tile origin must be an explicit loopback HTTP origin")
+
+
+def _packaged_smoke_tile_origin() -> QUrl | None:
+    value = os.environ.get(_PACKAGED_SMOKE_TILE_ORIGIN_ENVIRONMENT)
+    if not value:
+        return None
+    if os.environ.get(_PACKAGED_SMOKE_TEST_ENVIRONMENT) != "1":
+        raise ValueError("controlled tile origin is available only in packaged smoke mode")
+    return QUrl(value)

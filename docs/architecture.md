@@ -375,6 +375,16 @@ the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/polic
 The Flight tab's telemetry presentation is a separate surface and intentionally has no
 basemap. Task 107 does not merge that context into mission authoring.
 
+Task 108 makes Chromium software rendering the Windows default for this lightweight 2D
+WebEngine surface. The single `--disable-gpu` switch is selected before `QApplication`; Qt
+software OpenGL and Qt Quick software rendering were separately tested and did not repair
+the reproduced all-black child surface. The application does not disable Chromium's
+sandbox, TLS validation, CSP, or the request interceptor. A bounded renderer diagnostic
+records only the selected mode, Qt platform/version, GPU-disabled fact, and sandbox facts.
+Packaged acceptance captures the actual `QWebEngineView` pixels and requires the controlled
+tile color plus pixel-visible Leaflet zoom controls, so JavaScript counters cannot conceal a
+black compositor surface.
+
 ## 9. Persistence
 
 JSON includes `schema_version`, stable mission ID, settings, and discriminated action objects. It excludes ports, target IDs, connection state, compiled bytes, acknowledgment history, and trusted verification. Writes are atomic (temporary file plus replace); loads are parsed, migrated only through explicit migrations, structurally validated, and recompiled.

@@ -98,10 +98,12 @@ def test_packaged_smoke_argument_is_bounded_and_sets_the_io_guard(
         *,
         close_after_ms: int | None = None,
         packaged_smoke: bool = False,
+        packaged_visual_smoke: bool = False,
     ) -> int:
         observed["arguments"] = arguments
         observed["close_after_ms"] = close_after_ms
         observed["packaged_smoke"] = packaged_smoke
+        observed["packaged_visual_smoke"] = packaged_visual_smoke
         return 0
 
     monkeypatch.setattr(main_module, "run", fake_run)
@@ -117,5 +119,52 @@ def test_packaged_smoke_argument_is_bounded_and_sets_the_io_guard(
         "arguments": ["SKYWriter.exe"],
         "close_after_ms": None,
         "packaged_smoke": True,
+        "packaged_visual_smoke": False,
     }
     assert os.environ[main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT] == "1"
+
+
+def test_packaged_visual_smoke_is_hardware_blocked_and_renderer_owned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_run(
+        arguments: Sequence[str] | None = None,
+        *,
+        close_after_ms: int | None = None,
+        packaged_smoke: bool = False,
+        packaged_visual_smoke: bool = False,
+    ) -> int:
+        observed.update(
+            arguments=arguments,
+            close_after_ms=close_after_ms,
+            packaged_smoke=packaged_smoke,
+            packaged_visual_smoke=packaged_visual_smoke,
+        )
+        return 0
+
+    monkeypatch.setattr(main_module, "run", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["SKYWriter.exe", main_module.PACKAGED_VISUAL_SMOKE_TEST_ARGUMENT],
+    )
+    monkeypatch.delenv(main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT, raising=False)
+
+    assert main_module.main() == 0
+    assert observed == {
+        "arguments": ["SKYWriter.exe"],
+        "close_after_ms": None,
+        "packaged_smoke": True,
+        "packaged_visual_smoke": True,
+    }
+    assert os.environ[main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT] == "1"
+
+    installer_smoke = (REPOSITORY_ROOT / "packaging/windows/test-installer.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "--packaged-map-visual-smoke" in installer_smoke
+    assert "SKYWRITER_PACKAGED_SMOKE_TILE_ORIGIN" in installer_smoke
+    assert "QTWEBENGINE_CHROMIUM_FLAGS" not in installer_smoke
+    assert "--no-sandbox" not in installer_smoke

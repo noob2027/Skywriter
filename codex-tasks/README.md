@@ -25,6 +25,7 @@ Run the required tests and return the requested handoff report.
 | Vehicle profile | 105 | 1 | Task 104 merged; Big Bird evidence supplied |
 | Windows packaging | 106 | 1 | Task 105 merged; current `main` accepted |
 | Packaged map usability | 107 | 1 | Task 106 merged; current `main` accepted |
+| Windows map black-surface hotfix | 108 | 1 | Task 107 merged; installed acceptance failed |
 
 Parallel means separate branches with non-overlapping ownership, not multiple tasks in one Codex prompt. Tasks 002–004 and 006–008 are the only planned parallel waves. Stop a parallel task and raise a dedicated contract PR if shared interfaces must change.
 
@@ -52,5 +53,6 @@ Parallel means separate branches with non-overlapping ownership, not multiple ta
 - [`105-big-bird-bench-readiness.md`](105-big-bird-bench-readiness.md)
 - [`106-windows-installer.md`](106-windows-installer.md)
 - [`107-packaged-map-usability.md`](107-packaged-map-usability.md)
+- [`108-windows-webengine-black-surface.md`](108-windows-webengine-black-surface.md)
 
 Every task ends with a pull request; Codex must not merge it, create tags, or begin the next handoff.

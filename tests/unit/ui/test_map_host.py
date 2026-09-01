@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import TypeVar, cast
 
 import pytest
-from PySide6.QtCore import QPoint, Qt, QUrl
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPoint, Qt, QUrl
+from PySide6.QtGui import QColor, QImage, QPainter, QPen
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWidgets import QApplication, QWidget
@@ -31,6 +32,7 @@ from skywriter.ui.map.bridge import (
     ProviderStatusChanged,
     ViewportChanged,
 )
+from skywriter.ui.map.visual import CONTROLLED_TILE_RGB, inspect_map_surface
 
 T = TypeVar("T")
 _PNG_TILE = b64decode(
@@ -40,6 +42,7 @@ _PNG_TILE = b64decode(
 
 class ControlledTileServer(ThreadingHTTPServer):
     status_code = 200
+    tile_bytes = _PNG_TILE
     request_paths: list[str]
     user_agents: list[str]
 
@@ -64,9 +67,9 @@ class ControlledTileHandler(BaseHTTPRequestHandler):
         if self.server.status_code == 200:
             self.send_header("Content-Type", "image/png")
             self.send_header("Cache-Control", "public, max-age=604800")
-            self.send_header("Content-Length", str(len(_PNG_TILE)))
+            self.send_header("Content-Length", str(len(self.server.tile_bytes)))
             self.end_headers()
-            self.wfile.write(_PNG_TILE)
+            self.wfile.write(self.server.tile_bytes)
         else:
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -83,6 +86,23 @@ def wait_until(predicate: Callable[[], bool], *, timeout_ms: int = 8_000) -> Non
             return
         QTest.qWait(20)
     raise AssertionError("timed out waiting for the WebEngine map")
+
+
+def controlled_visual_tile() -> bytes:
+    image = QImage(256, 256, QImage.Format.Format_RGB32)
+    image.fill(QColor(*CONTROLLED_TILE_RGB))
+    painter = QPainter(image)
+    painter.setPen(QPen(QColor("white"), 10))
+    painter.drawLine(0, 0, 256, 256)
+    painter.drawLine(256, 0, 0, 256)
+    painter.end()
+    data = QByteArray()
+    buffer = QBuffer(data)
+    assert buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    assert image.save(buffer, cast(bytes, "PNG"))
+    buffer.close()
+    encoded = data.data()
+    return encoded if isinstance(encoded, bytes) else bytes(encoded)
 
 
 def evaluate(host: MissionMapHost, script: str, *, timeout_ms: int = 5_000) -> object:
@@ -278,7 +298,7 @@ def test_controlled_tiles_prove_loading_online_offline_and_retry_without_public_
         assert server.request_paths
         assert all(path.count("/") == 3 and path.endswith(".png") for path in server.request_paths)
         assert set(server.user_agents) == {
-            "SKYWriter/0.1.1 (+https://github.com/noob2027/Skywriter)"
+            "SKYWriter/0.1.2 (+https://github.com/noob2027/Skywriter)"
         }
         assert "OpenStreetMap contributors" in cast(
             str,
@@ -310,6 +330,49 @@ def test_controlled_tiles_prove_loading_online_offline_and_retry_without_public_
             TileProvider.OFFLINE, 0, ProviderState.OFFLINE, 0, 0, 0, 0
         )
         assert evaluate(host, "document.querySelectorAll('.leaflet-tile').length") == 0
+    finally:
+        host.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_mounted_surface_contains_controlled_tiles_and_visible_leaflet_controls() -> None:
+    server = ControlledTileServer()
+    server.tile_bytes = controlled_visual_tile()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host = make_host(server.origin)
+    try:
+        host.set_tile_provider(TileProvider.OPENSTREETMAP)
+        wait_until(
+            lambda: (
+                host.provider_status.state is ProviderState.ONLINE
+                and host.provider_status.loaded_tiles > 0
+                and host.provider_status.pending_tiles == 0
+            )
+        )
+        QTest.qWait(400)
+        dom = cast(
+            dict[str, object],
+            evaluate_json(
+                host,
+                "(() => {"
+                "const control=document.querySelector('.leaflet-control-zoom');"
+                "const rect=control?.getBoundingClientRect();"
+                "return {leaflet_controls_dom:Boolean(control),zoom_control_rect:rect?"
+                "{left:rect.left,top:rect.top,right:rect.right,bottom:rect.bottom}:null};"
+                "})()",
+            ),
+        )
+
+        evidence = inspect_map_surface(host.grab().toImage(), dom)
+
+        assert evidence.fixture_pixel_ratio >= 0.10
+        assert evidence.non_black_pixel_ratio >= 0.50
+        assert evidence.leaflet_controls_dom is True
+        assert evidence.leaflet_controls_visual is True
+        assert evidence.visual_ready is True
     finally:
         host.close()
         server.shutdown()
