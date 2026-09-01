@@ -570,7 +570,10 @@ def test_javascript_click_at_viewport_point_clamps_outside_request_into_map_boun
         dict[str, object],
         evaluate_json(
             host,
-            f"window.skywriterMapTest.clickAtViewportPointDebug({{x: {requested_x}, y: {requested_y}}})",
+            (
+                "window.skywriterMapTest.clickAtViewportPointDebug("
+                f"{{x: {requested_x}, y: {requested_y}}})"
+            ),
         ),
     )
     used = cast(dict[str, float], result["used"])
