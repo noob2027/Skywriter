@@ -16,6 +16,7 @@ from skywriter.compatibility.arducopter_4_6_3 import VehicleIdentity
 PINNED_PYMAVLINK_VERSION = "2.4.41"
 PINNED_DIALECT = "ardupilotmega"
 MAVLINK2_WIRE_PROTOCOL = "2.0"
+PACKAGED_SMOKE_TEST_ENVIRONMENT = "SKYWRITER_PACKAGED_SMOKE_TEST"
 MAV_MODE_FLAG_SAFETY_ARMED = 128
 MAV_MISSION_ACCEPTED = 0
 MAV_MISSION_OPERATION_CANCELLED = 15
@@ -870,6 +871,8 @@ def open_pymavlink_link(
 ) -> PymavlinkMissionLink:
     """Open the explicitly supplied endpoint under the exact pinned library/dialect."""
 
+    if os.environ.get(PACKAGED_SMOKE_TEST_ENVIRONMENT) == "1":
+        raise RuntimeError("vehicle I/O is disabled during the packaged launch smoke test")
     installed = importlib.metadata.version("pymavlink")
     if installed != PINNED_PYMAVLINK_VERSION:
         raise RuntimeError(f"pymavlink {PINNED_PYMAVLINK_VERSION} is required; found {installed}")

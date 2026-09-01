@@ -11,6 +11,9 @@ from skywriter.config import DEFAULT_CONFIG
 from skywriter.logging_config import configure_logging
 from skywriter.ui import MainWindow
 
+PACKAGED_SMOKE_TEST_ARGUMENT = "--packaged-smoke-test"
+PACKAGED_SMOKE_TEST_ENVIRONMENT = "SKYWRITER_PACKAGED_SMOKE_TEST"
+
 
 def create_application(arguments: Sequence[str] | None = None) -> QApplication:
     """Return the process QApplication, creating it when necessary."""
@@ -47,4 +50,13 @@ def run(arguments: Sequence[str] | None = None, *, close_after_ms: int | None = 
 def main() -> int:
     """Run SKYWriter from its console-script or module entry point."""
 
-    return run()
+    arguments = list(sys.argv)
+    if PACKAGED_SMOKE_TEST_ARGUMENT in arguments:
+        arguments.remove(PACKAGED_SMOKE_TEST_ARGUMENT)
+        # The explicit packaging smoke mode is both bounded and fail-closed at the
+        # MAVLink open boundary. It is never selected by a normal shortcut launch.
+        import os
+
+        os.environ[PACKAGED_SMOKE_TEST_ENVIRONMENT] = "1"
+        return run(arguments, close_after_ms=250)
+    return run(arguments)

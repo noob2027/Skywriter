@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Provisional SKYWriter application icon</title>
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="#173f3d"/>
+  <path d="M72 52h81l39 39v113H72z" fill="none" stroke="#f7fbfa" stroke-width="14" stroke-linejoin="round"/>
+  <path d="M153 52v39h39M101 127h62M101 158h62" fill="none" stroke="#8dd9d4" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

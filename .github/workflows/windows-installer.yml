@@ -1,0 +1,82 @@
+name: Windows prototype installer
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-installer:
+    name: Windows x64 / installer and smoke
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: |
+            requirements.lock
+            packaging/requirements-build.lock
+      - name: Prepare optional signing material
+        shell: pwsh
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+          TIMESTAMP_URL: ${{ secrets.WINDOWS_SIGNING_TIMESTAMP_URL }}
+        run: |
+          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:CERTIFICATE_BASE64)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:CERTIFICATE_PASSWORD)
+          if ($hasCertificate -ne $hasPassword) {
+            throw "Both Windows signing secrets must be configured together."
+          }
+          if ($hasCertificate) {
+            $certificate = Join-Path $env:RUNNER_TEMP "skywriter-signing.pfx"
+            [IO.File]::WriteAllBytes(
+              $certificate,
+              [Convert]::FromBase64String($env:CERTIFICATE_BASE64)
+            )
+            "SKYWRITER_SIGN_CERTIFICATE_FILE=$certificate" >> $env:GITHUB_ENV
+            "SKYWRITER_SIGN_CERTIFICATE_PASSWORD=$($env:CERTIFICATE_PASSWORD)" >> $env:GITHUB_ENV
+            if (-not [string]::IsNullOrWhiteSpace($env:TIMESTAMP_URL)) {
+              "SKYWRITER_SIGNING_TIMESTAMP_URL=$($env:TIMESTAMP_URL)" >> $env:GITHUB_ENV
+            }
+          }
+      - name: Build and verify installer
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process Bypass
+          .\packaging\windows\build-installer.ps1 `
+            -PythonPath (Get-Command python).Source `
+            -BuildRoot (Join-Path $env:RUNNER_TEMP "skywriter-task106-build") `
+            -OutputDirectory (Join-Path $env:RUNNER_TEMP "skywriter-artifacts")
+      - name: Select artifact identity
+        id: metadata
+        shell: pwsh
+        run: |
+          $metadata = Get-Content (Join-Path $env:RUNNER_TEMP "skywriter-artifacts\build-metadata.json") | ConvertFrom-Json
+          $signing = if ($metadata.signed) { "signed" } else { "unsigned" }
+          "signing=$signing" >> $env:GITHUB_OUTPUT
+      - name: Upload installer and SHA-256 manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: skywriter-prototype-windows-${{ steps.metadata.outputs.signing }}-0.1.0
+          path: |
+            ${{ runner.temp }}/skywriter-artifacts/SKYWriter-Prototype-Setup-0.1.0.exe
+            ${{ runner.temp }}/skywriter-artifacts/SHA256SUMS.txt
+            ${{ runner.temp }}/skywriter-artifacts/build-metadata.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove temporary signing material
+        if: always()
+        shell: pwsh
+        run: |
+          $certificate = Join-Path $env:RUNNER_TEMP "skywriter-signing.pfx"
+          Remove-Item -LiteralPath $certificate -Force -ErrorAction SilentlyContinue

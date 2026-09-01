@@ -181,6 +181,13 @@ the first disarmed powered-bench evidence contract. The PR prepares the gate but
 operate hardware or claim a bench result. See
 [`compatibility/big-bird/README.md`](../compatibility/big-bird/README.md).
 
+Task 106 follows accepted Task 105 and adds distribution infrastructure without widening
+any vehicle boundary. Its pinned PyInstaller `onedir` payload and per-user Inno Setup
+wrapper package the existing application, map assets, runtime, notices, shortcuts, and
+uninstaller. A fail-closed packaged smoke test may prove install/launch mechanics only;
+it disables the MAVLink open boundary and cannot satisfy any hardware or flight gate. See
+[`docs/windows-installer.md`](windows-installer.md).
+
 ## 10. Validation ladder
 
 ### Gate A — automated offline
