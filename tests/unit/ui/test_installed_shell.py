@@ -2,7 +2,7 @@
 
 from typing import TypeVar, cast
 
-from PySide6.QtCore import QPoint, QRect
+from PySide6.QtCore import QPoint, QRect, QSize
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -17,8 +17,17 @@ from PySide6.QtWidgets import (
 from skywriter.domain.mission import GeoPoint
 from skywriter.main import create_application
 from skywriter.ui import MainWindow
+from skywriter.ui.installed_acceptance import _is_exact_or_closest_available
 
 TWidget = TypeVar("TWidget", bound=QWidget)
+
+
+def test_installed_acceptance_geometry_allows_exact_or_closest_physical_size() -> None:
+    requested = QSize(1498, 758)
+
+    assert _is_exact_or_closest_available(requested, requested, QSize(1920, 1040))
+    assert _is_exact_or_closest_available(QSize(1028, 749), requested, QSize(1024, 749))
+    assert not _is_exact_or_closest_available(QSize(1028, 600), requested, QSize(1024, 749))
 
 
 def child(parent: QWidget, widget_type: type[TWidget], name: str) -> TWidget:

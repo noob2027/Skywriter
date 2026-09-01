@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import TypeVar, cast
 
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -31,6 +31,21 @@ from skywriter.ui.main_window import MainWindow
 from skywriter.ui.map import TileProvider
 
 TWidget = TypeVar("TWidget", bound=QWidget)
+
+
+def _is_exact_or_closest_available(actual: QSize, requested: QSize, available: QSize) -> bool:
+    """Accept the requested size or the window manager's nearest physical limit."""
+
+    tolerance = 32  # Window frames can extend a few pixels past the work area.
+    width_ok = actual.width() == requested.width() or (
+        available.width() < requested.width()
+        and abs(actual.width() - available.width()) <= tolerance
+    )
+    height_ok = actual.height() == requested.height() or (
+        available.height() < requested.height()
+        and abs(actual.height() - available.height()) <= tolerance
+    )
+    return width_ok and height_ok
 
 
 def execute_installed_ui_acceptance(window: MainWindow, output_root: Path) -> bool:
@@ -535,19 +550,30 @@ class _InstalledAcceptance:
         QTest.qWait(150)
         actual = self.window.size()
         screen = QApplication.primaryScreen()
+        self._assert(screen is not None, "primary screen is available")
+        assert screen is not None
+        available = screen.availableGeometry().size()
+        requested = QSize(width, height)
+        exact = actual == requested
         layouts = cast(list[object], self.evidence["layouts"])
         layouts.append(
             {
                 "label": label,
                 "exercised": True,
+                "mode": "exact" if exact else "closest-available",
                 "requested_width": width,
                 "requested_height": height,
                 "actual_width": actual.width(),
                 "actual_height": actual.height(),
-                "device_pixel_ratio": None if screen is None else screen.devicePixelRatio(),
+                "available_width": available.width(),
+                "available_height": available.height(),
+                "device_pixel_ratio": screen.devicePixelRatio(),
             }
         )
-        self._assert(actual.width() == width and actual.height() == height, f"{label} geometry")
+        self._assert(
+            _is_exact_or_closest_available(actual, requested, available),
+            f"{label} geometry",
+        )
 
     def _select_action(self, kind: str) -> None:
         combo = self._child(QComboBox, "actionKindInput")
