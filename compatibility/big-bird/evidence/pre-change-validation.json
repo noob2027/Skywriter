@@ -1,0 +1,20 @@
+{
+  "findings": [
+    {
+      "actual": "14",
+      "code": "existing_mission_requires_replacement",
+      "expected": null,
+      "message": "An onboard mission exists; the later bench workflow must explicitly replace it and verify the complete downloaded mission.",
+      "parameter": "MIS_TOTAL",
+      "severity": "notice"
+    }
+  ],
+  "mission_total": 14,
+  "parameter_count": 1269,
+  "passed": true,
+  "profile": "big-bird-matekh7a3-arducopter-4.6.3",
+  "schema_version": 1,
+  "source_line_count": 1269,
+  "source_sha256": "ef8f97a40a677085842717f43a9d932802aa91f819f7caa34d8df17485161020",
+  "stage": "pre-change"
+}

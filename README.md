@@ -106,6 +106,12 @@ and requires the matching accepted ACK plus later native Land-mode and landing-s
 telemetry before showing Landing. It never substitutes RTL, Guided control, setpoints,
 disarm, or parameter changes.
 
+The real Big Bird vehicle profile and first disarmed powered-bench evidence contract are
+documented in [`compatibility/big-bird/README.md`](compatibility/big-bird/README.md).
+Task 105 adds only a pure offline parameter-export validator and repository evidence. It
+does not add live parameter access, stream requests, vehicle setup automation, or a bench,
+arming, motor, or flight claim.
+
 ## Safety invariants
 
 - The repository never builds, patches, or distributes ArduCopter firmware.
@@ -170,6 +176,7 @@ The documents in this starter package are the implementation source of truth. Be
 - [`docs/pause-resume.md`](docs/pause-resume.md): native Pause/Resume gates, exact state proof, and SITL evidence
 - [`docs/land-here-now.md`](docs/land-here-now.md): deliberate native landing-at-current-location gate, confirmation, proof, and SITL evidence
 - [`docs/development-plan.md`](docs/development-plan.md): phases, branch/PR workflow, gates, and validation ladder
+- [`compatibility/big-bird/README.md`](compatibility/big-bird/README.md): exact vehicle profile, sanitized evidence, disarmed bench boundary, and later-gate progression
 - [`AGENTS.md`](AGENTS.md): binding repository rules for Codex and human contributors
 - [`codex-tasks/README.md`](codex-tasks/README.md): launch order and bounded handoffs
 

@@ -64,10 +64,12 @@ mission transport. Tasks 009–102 compose these accepted pieces only through th
 existing contracts.
 
 The stock fixture represents ArduCopter 4.6.3 observations, but SITL is neither a runtime
-dependency nor a prerequisite for offline SKYWriter. The intended Matek H7A3/H743 target,
-USB-C connector/interface mapping, and exact Holybro or alternative SiK radio model,
-firmware, region, and baud settings remain unverified hardware inputs. No hardware claim is
-made by this adapter.
+dependency nor a prerequisite for offline SKYWriter. Task 105 records the exact Big Bird
+MatekH7A3 target, `SERIAL2` TX2/RX2 assignment, `SERIAL3` GPS assignment, and reported SiK
+pair settings in the [vehicle profile](../compatibility/big-bird/README.md). Those records
+do not change this adapter: it remains receive-only and makes no live hardware-health
+claim. Cross wiring, configured stream persistence, and real telemetry freshness remain
+pending until the supervised disarmed procedure.
 
 ## Review evidence
 
