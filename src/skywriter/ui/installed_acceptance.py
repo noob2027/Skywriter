@@ -184,8 +184,10 @@ class _InstalledAcceptance:
             )
         try:
             self._wait_until(
-                lambda: self.builder.pending_point is not None
-                and self.builder.editing_index is None,
+                lambda: (
+                    self.builder.pending_point is not None
+                    and self.builder.editing_index is None
+                ),
                 "rendered map click",
             )
         except AssertionError:
@@ -194,8 +196,10 @@ class _InstalledAcceptance:
                 "rendered map click fallback via JS intent",
             )
             self._wait_until(
-                lambda: self.builder.pending_point is not None
-                and self.builder.editing_index is None,
+                lambda: (
+                    self.builder.pending_point is not None
+                    and self.builder.editing_index is None
+                ),
                 "rendered map click fallback via JS intent",
             )
         panel = self._child(QWidget, "pendingPointPanel")
