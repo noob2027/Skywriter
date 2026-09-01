@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "profile_id": "big-bird-matekh7a3-arducopter-4.6.3",
+  "decision": {
+    "repository_profile_prepared": true,
+    "powered_bench_observed": false,
+    "hardware_certified": false,
+    "arming_or_flight_authorized": false
+  },
+  "official_firmware_artifact": {
+    "source_url": "https://firmware.ardupilot.org/Copter/stable-4.6.3/MatekH7A3/arducopter.apj",
+    "size_bytes": 1389681,
+    "sha256": "6cbeb3e1e109072963929ee582d4b0624e23acb964c581f000881488f10e0956",
+    "apj_magic": "APJFWv1",
+    "board_id": 1149,
+    "summary": "MatekH7A3",
+    "description": "Firmware for a STM32H7A3xx board",
+    "git_identity": "3fc7011a",
+    "release": "ArduCopter 4.6.3 Official",
+    "retained_in_repository": false,
+    "verification": "Downloaded from the official stable directory and inspected offline for Task 105; the separately named local APJ was unavailable."
+  },
+  "observed_evidence": {
+    "pre_change_parameter_export": {
+      "sha256": "ef8f97a40a677085842717f43a9d932802aa91f819f7caa34d8df17485161020",
+      "line_count": 1269,
+      "retained_in_repository": false,
+      "sanitized_validation": "evidence/pre-change-validation.json"
+    },
+    "runtime_status_capture": {
+      "sha256": "249bc7ad4c8330a5f303e4fc1a0184e828d26c9b7bb6da5047a87c32389f9372",
+      "retained_in_repository": false,
+      "observations": [
+        "ArduCopter V4.6.3 (3fc7011a)",
+        "ChibiOS 88b84600",
+        "frame QUAD/X",
+        "runtime board label MatekH7A3",
+        "RCOut DShot300 outputs 1-4 and PWM outputs 5-11"
+      ],
+      "privacy": "The raw board UID visible in the source capture is intentionally not recorded."
+    },
+    "sik_pair_capture": {
+      "sha256": "9207d1c8224e5364f62fa750b574fd16e73eefe62ea410cb3108f4053518607c",
+      "retained_in_repository": false,
+      "observation": "Mission Planner showed matching local and remote settings."
+    },
+    "sik_detail_capture": {
+      "sha256": "df279c38dfbf346d8c4cfccbadc79192392828d5b8f5dff2435d4fcc75334213",
+      "retained_in_repository": false
+    },
+    "usb_session_capture": {
+      "sha256": "7476cfa3ec815409ae267470d9983a16a30027d3f6e9b6fd1ac67783937f5273",
+      "retained_in_repository": false,
+      "observation": "One Mission Planner USB session used COM19 at 115200; the COM number is not stable configuration."
+    },
+    "official_directory_capture": {
+      "sha256": "704786c3854171417ccdc98a871956ff71a97a96102857dad821f9b507415667",
+      "retained_in_repository": false,
+      "observation": "The official stable-4.6.3/MatekH7A3 directory exposed arducopter.apj."
+    }
+  },
+  "vehicle_profile": {
+    "flight_controller": "Matek H7A3-SLIM",
+    "ardupilot_target": "MatekH7A3",
+    "frame_class": 1,
+    "frame_type": 1,
+    "mavlink_system_id": 20,
+    "gcs_system_id": 255,
+    "serial_assignments": {
+      "SERIAL0": "USB, MAVLink2, 115200",
+      "SERIAL1": "serial RC protocol at 115200 with options 7; no RC is currently attached",
+      "SERIAL2": "physical TX2/RX2, USART2, SiK MAVLink2 at 57600, options 0",
+      "SERIAL3": "GPS, u-blox auto-detect at 115200, options 0"
+    },
+    "sensors": {
+      "gps": "u-blox SAM-M10Q reported detected; GPS1_TYPE=1; GPS1_RATE_MS=200",
+      "barometer": "BARO1_DEVID=816641; BARO_PRIMARY=0",
+      "compass": "one external compass; COMPASS_DEV_ID=855297; enabled with calibration offsets"
+    },
+    "safety_configuration": {
+      "ARMING_CHECK": 4366,
+      "arming_check_categories": [
+        "barometer",
+        "compass",
+        "GPS",
+        "battery",
+        "GPS configuration"
+      ],
+      "BATT_ARM_VOLT": 19.7,
+      "pre_arm_observation": "Battery voltage was reported below the configured minimum; Task 105 does not bypass it."
+    }
+  },
+  "operator_reported_physical_configuration": {
+    "tx2_rx2_device": "The radio is the sole device on the flight controller TX2/RX2 connection.",
+    "rc_receiver_attached": false,
+    "required_wiring_confirmation": "Confirm radio TX to FC RX2 and radio RX to FC TX2 before the live session."
+  },
+  "sik_profile": {
+    "reported_device_evidence": "RFD SiK 2.0 on HM-TRP",
+    "retail_manufacturer_or_model_claimed": false,
+    "frequency_plan": "FREQ_915",
+    "format": 26,
+    "uart_baud": 57600,
+    "air_speed": 64,
+    "net_id": 27,
+    "tx_power": 20,
+    "min_frequency_khz": 915000,
+    "max_frequency_khz": 928000,
+    "channels": 50,
+    "duty_cycle": 100,
+    "lbt_rssi": 0,
+    "mavlink_enabled": true,
+    "max_window_ms": 131,
+    "ecc": false,
+    "rts_cts": false,
+    "op_resend": false,
+    "aes": false,
+    "observed_ground_session": "COM8 at 57600 in one session; COM8 is not stable configuration."
+  },
+  "accepted_operator_configuration": {
+    "application": "Mission Planner only; SKYWriter has no parameter-write path.",
+    "stream_rates": {
+      "SR2_EXT_STAT": 2,
+      "SR2_POSITION": 2,
+      "SR2_EXTRA3": 1
+    },
+    "expected_skywriter_inputs": {
+      "SR2_EXT_STAT": [
+        "SYS_STATUS",
+        "MISSION_CURRENT",
+        "GPS_RAW_INT"
+      ],
+      "SR2_POSITION": [
+        "GLOBAL_POSITION_INT"
+      ],
+      "SR2_EXTRA3": [
+        "BATTERY_STATUS",
+        "EKF_STATUS_REPORT"
+      ]
+    },
+    "all_other_SR2_groups": 0,
+    "required_evidence": [
+      "backup of the pre-change parameter export",
+      "reboot and visible persistence confirmation",
+      "post-change parameter export",
+      "passing bench-ready offline profile validation"
+    ]
+  },
+  "not_yet_verified_live": [
+    "two-way TX2/RX2 cross wiring",
+    "post-change SR2 persistence after reboot",
+    "exclusive SiK COM-port ownership handoff from Mission Planner to SKYWriter",
+    "fresh same-vehicle SiK telemetry in SKYWriter",
+    "barometer and compass native health during the powered session",
+    "valid live GPS lock",
+    "mission replacement, accepted upload acknowledgment, complete readback, and exact semantic verification"
+  ],
+  "safety": {
+    "raw_board_uid_retained_or_published": false,
+    "real_hardware_operated_for_task_105": false,
+    "powered_bench_result_claimed": false,
+    "arm_requested": false,
+    "motors_commanded": false,
+    "flight_performed": false,
+    "firmware_flashed_or_modified": false,
+    "skywriter_parameter_reads_added": false,
+    "skywriter_parameter_writes_added": false,
+    "skywriter_stream_requests_added": false
+  }
+}

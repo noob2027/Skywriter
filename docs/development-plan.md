@@ -42,7 +42,11 @@ Tags record achieved evidence; they are not schedules.
 100 Pre-arm -> 101 Arm -> 102 AUTO Start
      -> 103 Pause/Resume -> 104 Land Here Now (all serial)
                     |
-            Props-off hardware gate
+        105 Big Bird profile/readiness
+                    |
+       Supervised disarmed bench gate
+                    |
+      Integrated props-off hardware gates
                     |
        Separately approved staged flight tests
 ```
@@ -171,6 +175,12 @@ It accepts no mode or sequence arguments and requires post-ACK armed AUTO plus n
 mission-progress telemetry. Its twice-fresh SITL evidence also interrupts the desktop
 link after Running and observes later onboard mission progress without fallback control.
 
+Task 105 follows the completed serial command wave without extending those controls. It
+pins the real Big Bird profile, adds a pure offline parameter-export validator, and defines
+the first disarmed powered-bench evidence contract. The PR prepares the gate but does not
+operate hardware or claim a bench result. See
+[`compatibility/big-bird/README.md`](../compatibility/big-bird/README.md).
+
 ## 10. Validation ladder
 
 ### Gate A — automated offline
@@ -210,6 +220,25 @@ compatibility remains stock ArduCopter 4.6.3 at pinned commit
 separate compatibility/SITL recertification task before hardware use. Completing Task
 104 software and SITL evidence does not satisfy or bypass this gate.
 
+Task 105 resolves this profile for Big Bird as Matek H7A3-SLIM / `MatekH7A3`, official
+ArduCopter 4.6.3 git identity `3fc7011a`, Board ID 1149, and the exact official APJ hash.
+It records the physical TX2/RX2-to-`SERIAL2` mapping, `SERIAL3` GPS assignment, reported
+matched SiK settings, sanitized parameter evidence, and the accepted operator-applied
+`SR2_*` rates. Physical cross-wiring, persisted rates, live sensor health, GPS lock, and
+mission upload/readback remain blocked on the supervised procedure. The earlier paragraph
+is retained as the historical gate definition; the reviewed Big Bird record is the
+vehicle-specific satisfaction artifact, not permission to skip live gates.
+
+### Gate C1 — Big Bird first disarmed powered bench
+
+Execute the reviewed
+[`Big Bird bench procedure`](../compatibility/big-bird/bench-procedure.md) under qualified
+supervision. Acceptance is deliberately narrow: post-reboot profile persistence, native
+barometer health, native compass health, valid GPS lock, and the existing SKYWriter USB
+mission replacement/upload/full-readback result followed by same-vehicle SiK readback.
+The gate requires pre/post parameter exports, hashes, logs, exact mission comparison, and
+operator sign-off. It contains no arming, motors, mission execution, or flight.
+
 ### Gate D — USB props-off hardware
 
 Confirm exact vehicle/firmware identity, disarmed upload/readback, Mission Planner independent comparison, no parameter changes, and logs. Propulsion remains physically unable to produce thrust under the approved procedure.
@@ -217,6 +246,19 @@ Confirm exact vehicle/firmware identity, disarmed upload/readback, Mission Plann
 ### Gate E — SiK props-off hardware
 
 Confirm same-vehicle reconciliation, mission re-verification, telemetry freshness/staleness, command ACKs where the approved procedure safely permits, radio interruption behavior, and zero hidden writes.
+
+### Integrated prototype and finished-product progression
+
+Passing the narrow Task 105 procedure supplies evidence for, but does not itself pass,
+the broader USB and SiK props-off gates. Those gates must next exercise the already-reviewed
+application lifecycle under separate procedures, including negative paths and safe command
+acknowledgments where explicitly authorized. Only after the complete integrated prototype
+is reviewable on the real vehicle may an aircraft-specific field plan be approved.
+
+Field work remains incremental: Takeoff–Land, then Proceed–Land, Hold, Circle, and finally
+a representative mission, with a stop/review between stages. Finished-product readiness
+requires accepted evidence across offline, protocol, SITL, disarmed profile, integrated
+props-off, and staged field gates; no single successful bench session certifies it.
 
 ### Gate F — staged field validation
 

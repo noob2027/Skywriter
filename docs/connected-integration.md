@@ -158,9 +158,11 @@ stock-SITL execution occurs on the approved Ubuntu GitHub runner unless an equiv
 Linux environment is installed. SITL is evidence infrastructure, never a runtime
 dependency.
 
-No real-hardware claim is made. The explicit pre-hardware compatibility-profile gate in
-[`development-plan.md`](development-plan.md) blocks props-off and flight work until the
-exact Matek H743 revision/firmware artifact, FC telemetry-port observations, matched
-Holybro SiK identities/settings, and same-vehicle MAVLink identity are recorded and
-reviewed. SKYWriter does not hardcode or write those parameters, and Mission Planner and
-SKYWriter may not compete for one COM port without a separately reviewed router design.
+No real-hardware claim is made by Task 009. Task 105 now establishes the specific Big Bird
+Matek H7A3-SLIM / `MatekH7A3` compatibility profile, official APJ identity, physical
+TX2/RX2-to-`SERIAL2` mapping, `SERIAL3` GPS assignment, and reported matching SiK settings.
+Its [reviewed record and disarmed procedure](../compatibility/big-bird/README.md) still mark
+cross wiring, post-reboot rates, live health/freshness, same-vehicle readback, and the
+physical bench result unverified. SKYWriter does not hardcode or write those parameters,
+and Mission Planner and SKYWriter may not compete for one COM port without a separately
+reviewed router design.

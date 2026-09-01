@@ -22,6 +22,7 @@ Run the required tests and return the requested handoff report.
 | Connected wave | 006, 007, 008 | up to 3 | pin and offline integration accepted |
 | Connected integration | 009 | 1 | 006–008 accepted |
 | Flight controls | 100, 101, 102, 103, 104 | exactly 1, in order | prior task merged and SITL green |
+| Vehicle profile | 105 | 1 | Task 104 merged; Big Bird evidence supplied |
 
 Parallel means separate branches with non-overlapping ownership, not multiple tasks in one Codex prompt. Tasks 002–004 and 006–008 are the only planned parallel waves. Stop a parallel task and raise a dedicated contract PR if shared interfaces must change.
 
@@ -46,5 +47,6 @@ Parallel means separate branches with non-overlapping ownership, not multiple ta
 - [`102-auto-start.md`](102-auto-start.md)
 - [`103-pause-resume.md`](103-pause-resume.md)
 - [`104-land-here-now.md`](104-land-here-now.md)
+- [`105-big-bird-bench-readiness.md`](105-big-bird-bench-readiness.md)
 
 Every task ends with a pull request; Codex must not merge it, create tags, or begin the next handoff.
