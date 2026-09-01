@@ -2,9 +2,10 @@
 
 ## What this proves
 
-Task 106 packages the accepted SKYWriter Python, PySide6/Qt WebEngine, pymavlink, map
+Tasks 106 and 107 package the accepted SKYWriter Python, PySide6/Qt WebEngine, pymavlink, map
 assets, Python runtime, Qt plugins/resources, and dependency notices as a PyInstaller
-`onedir` payload. Inno Setup wraps that payload in one per-user Setup executable.
+`onedir` payload. Inno Setup wraps that payload in one per-user Setup executable. Version
+0.1.1 is the Task 107 map-usability prototype.
 
 Successful installation and launch prove desktop deployment mechanics only. They do not
 prove vehicle compatibility, bench readiness, arming, motor, mission-execution, or flight
@@ -17,7 +18,7 @@ aircraft-specific setting is embedded in startup behavior.
 
 The expected files are:
 
-- `SKYWriter-Prototype-Setup-0.1.0.exe`
+- `SKYWriter-Prototype-Setup-0.1.1.exe`
 - `SHA256SUMS.txt`
 - `build-metadata.json`
 
@@ -25,7 +26,7 @@ Before installing, compare the Setup file's SHA-256 value with `SHA256SUMS.txt`.
 PowerShell:
 
 ```powershell
-Get-FileHash .\SKYWriter-Prototype-Setup-0.1.0.exe -Algorithm SHA256
+Get-FileHash .\SKYWriter-Prototype-Setup-0.1.1.exe -Algorithm SHA256
 ```
 
 Double-click Setup and follow the prompts. It installs for the current Windows user under
@@ -54,10 +55,14 @@ application lock plus `packaging/requirements-build.lock`, collects declared run
 license files, generates the provisional icon, builds the `onedir` payload, acquires
 Inno Setup 6.7.3 from its official release, verifies the pinned download SHA-256, compiles
 the installer, and runs a silent install/launch/uninstall smoke test. `-BuildRoot` may set
-another dedicated short path whose final directory name contains `skywriter` or `sw106`.
+another dedicated short path whose final directory name contains `skywriter`, `sw106`, or
+`sw107`.
 
-The packaged launch smoke starts from an arbitrary working directory, loads Qt WebEngine
-and packaged map assets, blocks the MAVLink open boundary, and exits after 250 ms. Use
+The packaged launch smoke starts from an arbitrary working directory, blocks the MAVLink
+open boundary, waits up to 15 seconds for the real local map page, Qt WebChannel bridge, and
+pinned Leaflet 1.9.4 surface to report positive dimensions, writes deterministic JSON
+evidence, and exits success or failure. It remains on the offline provider and therefore
+makes no tile-network request. Use
 `-SkipInstallerSmoke` only while diagnosing a build; CI does not skip it.
 
 Pinned build inputs:
@@ -71,6 +76,12 @@ Pinned build inputs:
 
 Generated installers, payloads, certificates, and private keys are ignored and must not
 be committed.
+
+Task 107's verified unsigned local artifact is
+`SKYWriter-Prototype-Setup-0.1.1.exe`, 147,313,409 bytes, SHA-256
+`c293846ead84224cdaf0f260c5bf43361f4f30a9ad342b8005e4c7b24135f5b2`. Its clean smoke
+mounted packaged Leaflet 1.9.4 at 608 × 358 CSS pixels from `C:\Windows` with the offline
+provider and vehicle-I/O guard active, then uninstalled successfully.
 
 ## Optional signing seam
 

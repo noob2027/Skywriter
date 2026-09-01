@@ -97,9 +97,11 @@ def test_packaged_smoke_argument_is_bounded_and_sets_the_io_guard(
         arguments: Sequence[str] | None = None,
         *,
         close_after_ms: int | None = None,
+        packaged_smoke: bool = False,
     ) -> int:
         observed["arguments"] = arguments
         observed["close_after_ms"] = close_after_ms
+        observed["packaged_smoke"] = packaged_smoke
         return 0
 
     monkeypatch.setattr(main_module, "run", fake_run)
@@ -111,5 +113,9 @@ def test_packaged_smoke_argument_is_bounded_and_sets_the_io_guard(
     monkeypatch.delenv(main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT, raising=False)
 
     assert main_module.main() == 0
-    assert observed == {"arguments": ["SKYWriter.exe"], "close_after_ms": 250}
+    assert observed == {
+        "arguments": ["SKYWriter.exe"],
+        "close_after_ms": None,
+        "packaged_smoke": True,
+    }
     assert os.environ[main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT] == "1"

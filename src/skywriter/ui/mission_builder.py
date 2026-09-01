@@ -32,7 +32,14 @@ from skywriter.domain.mission import (
     MissionSettings,
     ProceedAction,
 )
-from skywriter.ui.map import MissionMapHost, TileProvider
+from skywriter.ui.map import (
+    MapBridgeError,
+    MissionMapHost,
+    ProviderState,
+    ProviderStatusChanged,
+    TileProvider,
+    parse_coordinate_input,
+)
 
 OBSTACLE_WARNING_TEXT = (
     "Verify clearance from power lines, rooftops, trees, cables, poles, and other "
@@ -128,7 +135,7 @@ class MissionBuilderWidget(QWidget):
 
     intent_emitted = Signal(object)
 
-    def __init__(self) -> None:
+    def __init__(self, map_host: MissionMapHost | None = None) -> None:
         super().__init__()
         self.setObjectName("missionBuilder")
         self.setAccessibleName("Mission builder")
@@ -136,7 +143,7 @@ class MissionBuilderWidget(QWidget):
         self._snapshot = MissionBuilderSnapshot()
         self._pending_point: GeoPoint | None = None
         self._editing_index: int | None = None
-        self._build_ui()
+        self._build_ui(map_host)
         self._connect_signals()
         self.render_snapshot(self._snapshot)
 
@@ -186,7 +193,7 @@ class MissionBuilderWidget(QWidget):
 
         self._on_map_clicked(point)
 
-    def _build_ui(self) -> None:
+    def _build_ui(self, map_host: MissionMapHost | None) -> None:
         self.setStyleSheet(_STYLE_SHEET)
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 20, 24, 22)
@@ -202,9 +209,9 @@ class MissionBuilderWidget(QWidget):
         title_box.addWidget(subtitle)
         header.addLayout(title_box)
         header.addStretch()
-        offline_badge = QLabel("OFFLINE  •  NO VEHICLE LINK")
+        offline_badge = QLabel("VEHICLE LINK OFFLINE")
         offline_badge.setObjectName("offlineBadge")
-        offline_badge.setAccessibleName("Offline, no vehicle link")
+        offline_badge.setAccessibleName("Vehicle link offline")
         header.addWidget(offline_badge)
         root.addLayout(header)
 
@@ -227,9 +234,51 @@ class MissionBuilderWidget(QWidget):
             "OpenStreetMap Standard (network)", TileProvider.OPENSTREETMAP.value
         )
         map_toolbar.addWidget(self._map_provider)
+        self._map_retry = QPushButton("Retry")
+        self._map_retry.setObjectName("mapProviderRetryButton")
+        self._map_retry.setAccessibleName("Retry selected basemap provider")
+        self._map_retry.setEnabled(False)
+        map_toolbar.addWidget(self._map_retry)
         map_toolbar.addStretch()
         map_layout.addLayout(map_toolbar)
-        self._map = MissionMapHost()
+        self._map_provider_status = QLabel("Offline — local planning grid; no network requests.")
+        self._map_provider_status.setObjectName("mapProviderStatus")
+        self._map_provider_status.setWordWrap(True)
+        self._map_provider_status.setProperty("providerState", ProviderState.OFFLINE.value)
+        map_layout.addWidget(self._map_provider_status)
+
+        coordinate_toolbar = QHBoxLayout()
+        coordinate_toolbar.addWidget(QLabel("Go to"))
+        self._map_latitude = QLineEdit()
+        self._map_latitude.setObjectName("mapLatitudeInput")
+        self._map_latitude.setAccessibleName("Map latitude in decimal degrees")
+        self._map_latitude.setPlaceholderText("Latitude −90..90")
+        self._map_latitude.setMaximumWidth(150)
+        coordinate_toolbar.addWidget(self._map_latitude)
+        self._map_longitude = QLineEdit()
+        self._map_longitude.setObjectName("mapLongitudeInput")
+        self._map_longitude.setAccessibleName("Map longitude in decimal degrees")
+        self._map_longitude.setPlaceholderText("Longitude −180..180")
+        self._map_longitude.setMaximumWidth(160)
+        coordinate_toolbar.addWidget(self._map_longitude)
+        self._map_go = QPushButton("Go / recenter")
+        self._map_go.setObjectName("mapGoToCoordinatesButton")
+        coordinate_toolbar.addWidget(self._map_go)
+        self._map_authoritative_center = QPushButton("Center Home / Vehicle")
+        self._map_authoritative_center.setObjectName("mapAuthoritativeCenterButton")
+        self._map_authoritative_center.setEnabled(False)
+        self._map_authoritative_center.setToolTip(
+            "Unavailable: this isolated mission builder has no authoritative current "
+            "Home or Vehicle point."
+        )
+        coordinate_toolbar.addWidget(self._map_authoritative_center)
+        coordinate_toolbar.addStretch()
+        map_layout.addLayout(coordinate_toolbar)
+        self._map_coordinate_feedback = QLabel()
+        self._map_coordinate_feedback.setObjectName("mapCoordinateFeedback")
+        self._map_coordinate_feedback.setVisible(False)
+        map_layout.addWidget(self._map_coordinate_feedback)
+        self._map = map_host or MissionMapHost()
         map_layout.addWidget(self._map, 1)
         content.addWidget(map_panel, 3)
 
@@ -392,9 +441,14 @@ class MissionBuilderWidget(QWidget):
         self._clear.clicked.connect(self._on_clear)
         self._remove_land.clicked.connect(self._on_remove_land)
         self._map_provider.currentIndexChanged.connect(self._on_map_provider_changed)
+        self._map_retry.clicked.connect(self._map.retry_tiles)
+        self._map_go.clicked.connect(self._on_go_to_coordinates)
+        self._map_latitude.returnPressed.connect(self._on_go_to_coordinates)
+        self._map_longitude.returnPressed.connect(self._on_go_to_coordinates)
         self._map.map_clicked.connect(self._on_map_clicked)
         self._map.point_selected.connect(self._on_canvas_selected)
         self._map.point_dragged.connect(self._on_point_dragged)
+        self._map.provider_status_changed.connect(self._on_provider_status_changed)
 
     def _on_primary_action(self) -> None:
         if self._snapshot.settings is None:
@@ -536,7 +590,56 @@ class MissionBuilderWidget(QWidget):
 
     def _on_map_provider_changed(self) -> None:
         value = cast(str, self._map_provider.currentData())
-        self._map.set_tile_provider(TileProvider(value))
+        provider = TileProvider(value)
+        self._map_retry.setEnabled(provider is TileProvider.OPENSTREETMAP)
+        self._map.set_tile_provider(provider)
+
+    def _on_provider_status_changed(self, value: object) -> None:
+        if not isinstance(value, ProviderStatusChanged):
+            return
+        self._map_provider_status.setProperty("providerState", value.state.value)
+        if value.state is ProviderState.OFFLINE:
+            message = "Offline — local planning grid; no network requests."
+        elif value.state is ProviderState.LOADING:
+            message = (
+                "Loading OpenStreetMap Standard… "
+                f"{value.loaded_tiles}/{value.requested_tiles} visible tiles received."
+            )
+        elif value.state is ProviderState.ONLINE:
+            message = (
+                f"Online — OpenStreetMap Standard is visible ({value.loaded_tiles} tiles received)."
+            )
+        elif value.state is ProviderState.PARTIAL:
+            message = (
+                f"Partial map — {value.loaded_tiles} tiles received, "
+                f"{value.error_tiles} failed, {value.pending_tiles} unanswered. "
+                "Check access to tile.openstreetmap.org, then Retry."
+            )
+        else:
+            message = (
+                "OpenStreetMap unavailable — no visible tiles were received "
+                f"({value.error_tiles} failed, {value.pending_tiles} unanswered). "
+                "Check internet, TLS/DNS, or firewall access to "
+                "tile.openstreetmap.org, then Retry."
+            )
+        self._map_provider_status.setText(message)
+        self._map_provider_status.style().unpolish(self._map_provider_status)
+        self._map_provider_status.style().polish(self._map_provider_status)
+
+    def _on_go_to_coordinates(self) -> None:
+        try:
+            point = parse_coordinate_input(self._map_latitude.text(), self._map_longitude.text())
+        except MapBridgeError as error:
+            self._map_coordinate_feedback.setProperty("valid", False)
+            self._map_coordinate_feedback.setText(str(error))
+            self._map_coordinate_feedback.setVisible(True)
+            return
+        self._map.recenter(point)
+        self._map_coordinate_feedback.setProperty("valid", True)
+        self._map_coordinate_feedback.setText(
+            f"Centered on operator-entered coordinates: {_format_point(point)}."
+        )
+        self._map_coordinate_feedback.setVisible(True)
 
     def _begin_edit(self, index: int) -> None:
         action = self._snapshot.actions[index]
@@ -756,6 +859,27 @@ QLabel#offlineBadge {
     font-weight: 700;
     letter-spacing: 1px;
 }
+QLabel#mapProviderStatus {
+    border-radius: 7px;
+    background: #edf3f2;
+    color: #365c59;
+    padding: 6px 9px;
+}
+QLabel#mapProviderStatus[providerState="loading"] {
+    background: #fff3cd;
+    color: #664d03;
+}
+QLabel#mapProviderStatus[providerState="online"] {
+    background: #dff3e5;
+    color: #205c35;
+}
+QLabel#mapProviderStatus[providerState="partial"],
+QLabel#mapProviderStatus[providerState="unavailable"] {
+    background: #fff0ed;
+    color: #8d2e25;
+}
+QLabel#mapCoordinateFeedback[valid="true"] { color: #205c35; font-weight: 600; }
+QLabel#mapCoordinateFeedback[valid="false"] { color: #8d2e25; font-weight: 600; }
 QWidget#missionSidebar { background: transparent; }
 QFrame#takeoffPanel, QFrame#missionPanel, QFrame#pendingPointPanel {
     background: #ffffff;

@@ -1,9 +1,16 @@
 (() => {
   "use strict";
 
-  const SCHEMA_VERSION = 1;
-  const DEFAULT_CENTER = [38.8895, -77.0353];
-  const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const SCHEMA_VERSION = 2;
+  const DEFAULT_CENTER = [0, 0];
+  const DEFAULT_ZOOM = 2;
+  const OSM_TILE_URL =
+    typeof window.__skywriterControlledTileTemplate === "string"
+      ? window.__skywriterControlledTileTemplate
+      : "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const TILE_TIMEOUT_MS = Number.isInteger(window.__skywriterControlledTileTimeoutMs)
+    ? window.__skywriterControlledTileTimeoutMs
+    : 8000;
   const EARTH_RADIUS_M = 6371008.8;
   const mapElement = document.getElementById("mission-map");
   const status = document.getElementById("status");
@@ -16,10 +23,44 @@
     keyboard: true,
     scrollWheelZoom: true,
     zoomControl: true,
-  }).setView(DEFAULT_CENTER, 13);
+  }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+
+  let resizeFrame = null;
+  let lastSettledMapSize = {
+    height: mapElement.clientHeight,
+    width: mapElement.clientWidth,
+  };
+  const resizeObserver = new ResizeObserver(() => {
+    if (resizeFrame !== null) {
+      window.cancelAnimationFrame(resizeFrame);
+    }
+    resizeFrame = window.requestAnimationFrame(() => {
+      resizeFrame = null;
+      map.invalidateSize({ animate: false, debounceMoveend: true, pan: false });
+    });
+  });
+  resizeObserver.observe(mapElement);
+
+  function synchronizeSize() {
+    const nextSize = {
+      height: mapElement.clientHeight,
+      width: mapElement.clientWidth,
+    };
+    const changed =
+      nextSize.height !== lastSettledMapSize.height ||
+      nextSize.width !== lastSettledMapSize.width;
+    map.invalidateSize({ animate: false, debounceMoveend: false, pan: false });
+    lastSettledMapSize = nextSize;
+    if (changed && tileLayer) {
+      tileLayer.redraw();
+    }
+    return changed;
+  }
 
   let bridge = null;
   let tileLayer = null;
+  let tileTimeout = null;
+  let tileStatus = emptyTileStatus();
   let renderModel = emptyRenderModel();
   let actionMarkers = [];
   let renderLayers = [];
@@ -31,6 +72,8 @@
   let viewportMoveendSequence = 0;
   let viewportPanRequestSequence = 0;
   let pendingViewportPan = null;
+  let lastGeometrySignature = null;
+  let mapReadyReported = false;
   const viewportPanStates = new Map();
   const viewportPanCompletions = new Map();
 
@@ -41,7 +84,20 @@
       actions: [],
       pending_point: null,
       tile_provider: "offline",
+      tile_attempt_id: 0,
       drag_threshold_px: 10,
+    };
+  }
+
+  function emptyTileStatus() {
+    return {
+      provider: "offline",
+      attempt_id: 0,
+      state: "offline",
+      requested_tiles: 0,
+      loaded_tiles: 0,
+      error_tiles: 0,
+      pending_tiles: 0,
     };
   }
 
@@ -80,25 +136,130 @@
     activeDrag = null;
   }
 
-  function updateTileProvider(provider) {
-    if (tileLayer) {
-      tileLayer.removeFrom(map);
-      tileLayer = null;
+  function providerMessage(value) {
+    if (value.state === "offline") {
+      return "Offline · local planning grid";
     }
+    if (value.state === "loading") {
+      return `Loading OpenStreetMap · ${value.loaded_tiles}/${value.requested_tiles} tiles`;
+    }
+    if (value.state === "online") {
+      return `Online · ${value.loaded_tiles} OpenStreetMap tiles received`;
+    }
+    if (value.state === "partial") {
+      return `Partial · ${value.loaded_tiles} received, ${value.error_tiles} failed`;
+    }
+    return `Unavailable · ${value.error_tiles} tile request(s) failed`;
+  }
+
+  function publishTileStatus(state) {
+    tileStatus.state = state;
+    providerStatus.dataset.state = state;
+    providerStatus.textContent = providerMessage(tileStatus);
+    sendIntent("provider_status_changed", { ...tileStatus });
+  }
+
+  function clearTileTimeout() {
+    if (tileTimeout !== null) {
+      window.clearTimeout(tileTimeout);
+      tileTimeout = null;
+    }
+  }
+
+  function classifyCompletedTileAttempt() {
+    clearTileTimeout();
+    if (
+      tileStatus.loaded_tiles > 0 &&
+      (tileStatus.error_tiles > 0 || tileStatus.pending_tiles > 0)
+    ) {
+      publishTileStatus("partial");
+    } else if (tileStatus.loaded_tiles > 0) {
+      publishTileStatus("online");
+    } else {
+      publishTileStatus("unavailable");
+    }
+  }
+
+  function updateTileProvider(provider, attemptId) {
+    if (tileStatus.provider === provider && tileStatus.attempt_id === attemptId) {
+      return;
+    }
+    clearTileTimeout();
+    if (tileLayer) {
+      const previousTileLayer = tileLayer;
+      tileLayer = null;
+      previousTileLayer.removeFrom(map);
+    }
+    tileStatus = {
+      provider,
+      attempt_id: attemptId,
+      state: provider === "offline" ? "offline" : "loading",
+      requested_tiles: 0,
+      loaded_tiles: 0,
+      error_tiles: 0,
+      pending_tiles: 0,
+    };
     if (provider === "openstreetmap") {
-      tileLayer = L.tileLayer(OSM_TILE_URL, {
+      const attemptStatus = tileStatus;
+      const pendingTiles = new Set();
+      const attemptLayer = L.tileLayer(OSM_TILE_URL, {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
         maxZoom: 19,
         noWrap: true,
         updateWhenIdle: true,
       });
-      tileLayer.on("tileerror", () => {
-        status.textContent = "Basemap unavailable; mission editing remains available.";
+      tileLayer = attemptLayer;
+      const isCurrentAttempt = () =>
+        tileStatus === attemptStatus && tileLayer === attemptLayer;
+      attemptLayer.on("tileloadstart", (event) => {
+        if (!isCurrentAttempt() || pendingTiles.has(event.tile)) {
+          return;
+        }
+        pendingTiles.add(event.tile);
+        tileStatus.requested_tiles += 1;
+        tileStatus.pending_tiles += 1;
+        publishTileStatus("loading");
       });
-      tileLayer.addTo(map);
-      providerStatus.textContent = "OpenStreetMap Standard · network";
+      attemptLayer.on("tileload", (event) => {
+        if (!isCurrentAttempt() || !pendingTiles.delete(event.tile)) {
+          return;
+        }
+        tileStatus.loaded_tiles += 1;
+        tileStatus.pending_tiles = Math.max(0, tileStatus.pending_tiles - 1);
+        publishTileStatus(tileStatus.error_tiles > 0 ? "partial" : "online");
+      });
+      attemptLayer.on("tileerror", (event) => {
+        if (!isCurrentAttempt() || !pendingTiles.delete(event.tile)) {
+          return;
+        }
+        tileStatus.error_tiles += 1;
+        tileStatus.pending_tiles = Math.max(0, tileStatus.pending_tiles - 1);
+        if (tileStatus.loaded_tiles > 0) {
+          publishTileStatus("partial");
+        }
+      });
+      attemptLayer.on("tileunload", (event) => {
+        if (!isCurrentAttempt() || !pendingTiles.delete(event.tile)) {
+          return;
+        }
+        tileStatus.requested_tiles = Math.max(0, tileStatus.requested_tiles - 1);
+        tileStatus.pending_tiles = Math.max(0, tileStatus.pending_tiles - 1);
+        publishTileStatus("loading");
+      });
+      attemptLayer.on("load", () => {
+        if (isCurrentAttempt()) {
+          classifyCompletedTileAttempt();
+        }
+      });
+      publishTileStatus("loading");
+      attemptLayer.addTo(map);
+      tileTimeout = window.setTimeout(() => {
+        if (isCurrentAttempt()) {
+          classifyCompletedTileAttempt();
+        }
+      }, TILE_TIMEOUT_MS);
     } else {
-      providerStatus.textContent = "No basemap · offline";
+      publishTileStatus("offline");
     }
     mapElement.dataset.tileProvider = provider;
   }
@@ -285,12 +446,15 @@
     fitPoints.push(original);
   }
 
-  function fitRenderedGeometry(fitPoints) {
+  function fitRenderedGeometry(fitPoints, geometryChanged) {
     const renderSequence = ++viewportRenderSequence;
+    if (!geometryChanged || fitPoints.length === 0) {
+      suppressViewportIntent = false;
+      viewportSettledRenderSequence = renderSequence;
+      return;
+    }
     suppressViewportIntent = true;
-    if (fitPoints.length === 0) {
-      map.setView(DEFAULT_CENTER, 13, { animate: false });
-    } else if (fitPoints.length === 1) {
+    if (fitPoints.length === 1) {
       map.setView(fitPoints[0], 16, { animate: false });
     } else {
       map.fitBounds(L.latLngBounds(fitPoints).pad(0.28), {
@@ -357,7 +521,7 @@
 
   function draw() {
     clearRenderLayers();
-    updateTileProvider(renderModel.tile_provider);
+    updateTileProvider(renderModel.tile_provider, renderModel.tile_attempt_id);
     const fitPoints = [];
     const route = renderModel.actions.map((action) => pointLatLng(action.point));
     if (route.length > 1) {
@@ -400,13 +564,39 @@
       });
       fitPoints.push(pending);
     }
-    fitRenderedGeometry(fitPoints);
+    const geometrySignature = JSON.stringify({
+      actions: renderModel.actions.map((action) => ({
+        point: action.point,
+        radius_m: action.radius_m ?? null,
+      })),
+      pending_point: renderModel.pending_point,
+    });
+    const geometryChanged = geometrySignature !== lastGeometrySignature;
+    lastGeometrySignature = geometrySignature;
+    fitRenderedGeometry(fitPoints, geometryChanged);
     mapElement.dataset.rendered = "true";
     mapElement.dataset.actionCount = String(renderModel.actions.length);
     mapElement.dataset.pending = String(renderModel.pending_point !== null);
     status.textContent = renderModel.pending_point
       ? "Pending point selected; choose an action in the editor."
       : "Click the map to place a pending mission point.";
+    reportMapReady();
+  }
+
+  function reportMapReady() {
+    if (mapReadyReported || !bridge || mapElement.dataset.rendered !== "true") {
+      return;
+    }
+    const rectangle = mapElement.getBoundingClientRect();
+    if (rectangle.width <= 0 || rectangle.height <= 0) {
+      window.setTimeout(reportMapReady, 20);
+      return;
+    }
+    mapReadyReported = sendIntent("map_ready", {
+      leaflet_version: L.version,
+      container_width_px: rectangle.width,
+      container_height_px: rectangle.height,
+    });
   }
 
   function exactKeys(value, expected) {
@@ -471,6 +661,7 @@
       "drag_threshold_px",
       "pending_point",
       "schema_version",
+      "tile_attempt_id",
       "tile_provider",
       "type",
     ];
@@ -484,6 +675,10 @@
       value.actions.every(validAction) &&
       (value.pending_point === null || validPoint(value.pending_point)) &&
       ["offline", "openstreetmap"].includes(value.tile_provider) &&
+      Number.isInteger(value.tile_attempt_id) &&
+      value.tile_attempt_id >= 0 &&
+      ((value.tile_provider === "offline" && value.tile_attempt_id === 0) ||
+        (value.tile_provider === "openstreetmap" && value.tile_attempt_id >= 1)) &&
       Number.isInteger(value.drag_threshold_px) &&
       value.drag_threshold_px > 0
     );
@@ -515,7 +710,7 @@
     if (typeof bridge.current_render_message === "string") {
       acceptRender(bridge.current_render_message);
     }
-    status.textContent = "Local map bridge connected.";
+    reportMapReady();
   }
 
   map.on("click", (event) => {
@@ -616,6 +811,29 @@
         y: rectangle.top + rectangle.height / 2,
       };
     },
+    geographicViewport: () => ({
+      center: pointValue(map.getCenter()),
+      zoom: map.getZoom(),
+    }),
+    recenter: (value) => {
+      if (
+        !value ||
+        typeof value !== "object" ||
+        !validPoint({
+          latitude_deg: value.latitude_deg,
+          longitude_deg: value.longitude_deg,
+        }) ||
+        !Number.isInteger(value.zoom) ||
+        value.zoom < DEFAULT_ZOOM ||
+        value.zoom > 19
+      ) {
+        return false;
+      }
+      map.setView(pointLatLng(value), value.zoom, { animate: false });
+      return true;
+    },
+    synchronizeSize,
+    providerStatus: () => ({ ...tileStatus }),
     requestViewportPan,
     viewportPanStatus: (requestId) => viewportPanStates.get(requestId) ?? null,
     viewportPanCompletion: (requestId) =>
@@ -627,9 +845,15 @@
         bridge_connected: bridge !== null,
         container_height: rectangle.height,
         container_width: rectangle.width,
+        leaflet_height: map.getSize().y,
+        leaflet_width: map.getSize().x,
         pending: renderModel.pending_point !== null,
         pending_viewport_pan: pendingViewportPan !== null,
         provider: renderModel.tile_provider,
+        provider_state: tileStatus.state,
+        tile_attempt_id: renderModel.tile_attempt_id,
+        tile_errors: tileStatus.error_tiles,
+        tiles_loaded: tileStatus.loaded_tiles,
         render_sequence: viewportRenderSequence,
         rendered: mapElement.dataset.rendered === "true",
         settled_render_sequence: viewportSettledRenderSequence,

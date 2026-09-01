@@ -14,14 +14,18 @@ from skywriter.ui.map.bridge import (
     MapBridge,
     MapBridgeError,
     MapClicked,
+    MapReady,
     PointDragged,
     PointSelected,
+    ProviderState,
+    ProviderStatusChanged,
     RenderAction,
     RenderActionKind,
     RenderModel,
     TileProvider,
     ViewportChanged,
     encode_render_message,
+    parse_coordinate_input,
     parse_map_intent,
 )
 
@@ -33,7 +37,7 @@ SOURCE_ROOT = Path(__file__).parents[3] / "src" / "skywriter" / "ui"
     [
         (
             {
-                "schema_version": 1,
+                "schema_version": BRIDGE_SCHEMA_VERSION,
                 "type": "map_clicked",
                 "point": {"latitude_deg": 38.0, "longitude_deg": -77.0},
             },
@@ -41,7 +45,7 @@ SOURCE_ROOT = Path(__file__).parents[3] / "src" / "skywriter" / "ui"
         ),
         (
             {
-                "schema_version": 1,
+                "schema_version": BRIDGE_SCHEMA_VERSION,
                 "type": "point_dragged",
                 "index": 2,
                 "point": {"latitude_deg": 39.0, "longitude_deg": -76.0},
@@ -49,12 +53,16 @@ SOURCE_ROOT = Path(__file__).parents[3] / "src" / "skywriter" / "ui"
             PointDragged(2, GeoPoint(39.0, -76.0)),
         ),
         (
-            {"schema_version": 1, "type": "point_selected", "index": 0},
+            {
+                "schema_version": BRIDGE_SCHEMA_VERSION,
+                "type": "point_selected",
+                "index": 0,
+            },
             PointSelected(0),
         ),
         (
             {
-                "schema_version": 1,
+                "schema_version": BRIDGE_SCHEMA_VERSION,
                 "type": "viewport_changed",
                 "south_west": {"latitude_deg": 37.0, "longitude_deg": -78.0},
                 "north_east": {"latitude_deg": 39.0, "longitude_deg": -76.0},
@@ -75,7 +83,13 @@ def test_bridge_parses_only_typed_map_intents(payload: dict[str, object], expect
         '{"schema_version":1,"type":"map_clicked","point":'
         '{"latitude_deg":1,"latitude_deg":2,"longitude_deg":0}}',
         '{"schema_version":1,"type":"map_clicked","point":{"latitude_deg":NaN,"longitude_deg":0}}',
-        json.dumps({"schema_version": 2, "type": "point_selected", "index": 0}),
+        json.dumps(
+            {
+                "schema_version": BRIDGE_SCHEMA_VERSION + 1,
+                "type": "point_selected",
+                "index": 0,
+            }
+        ),
         json.dumps({"schema_version": 1, "type": "point_selected", "index": 0, "extra": 1}),
         json.dumps({"schema_version": 1, "type": "unknown", "index": 0}),
         json.dumps({"schema_version": 1, "type": "point_selected", "index": -1}),
@@ -126,13 +140,131 @@ def test_qobject_bridge_reports_rejection_without_emitting_an_intent() -> None:
     bridge.intent_received.connect(intents.append)
     bridge.message_rejected.connect(errors.append)
 
-    accepted = bridge.receive_message('{"schema_version":1,"type":"point_selected","index":0}')
-    rejected = bridge.receive_message('{"schema_version":1,"type":"point_selected","index":false}')
+    accepted = bridge.receive_message(
+        json.dumps({"schema_version": BRIDGE_SCHEMA_VERSION, "type": "point_selected", "index": 0})
+    )
+    rejected = bridge.receive_message(
+        json.dumps(
+            {
+                "schema_version": BRIDGE_SCHEMA_VERSION,
+                "type": "point_selected",
+                "index": False,
+            }
+        )
+    )
 
     assert accepted == "accepted"
     assert rejected == "rejected"
     assert intents == [PointSelected(0)]
     assert len(errors) == 1
+
+
+def test_bridge_parses_correlated_provider_status_and_mounted_readiness() -> None:
+    status = parse_map_intent(
+        json.dumps(
+            {
+                "schema_version": BRIDGE_SCHEMA_VERSION,
+                "type": "provider_status_changed",
+                "provider": "openstreetmap",
+                "attempt_id": 3,
+                "state": "partial",
+                "requested_tiles": 5,
+                "loaded_tiles": 3,
+                "error_tiles": 1,
+                "pending_tiles": 1,
+            }
+        )
+    )
+    ready = parse_map_intent(
+        json.dumps(
+            {
+                "schema_version": BRIDGE_SCHEMA_VERSION,
+                "type": "map_ready",
+                "leaflet_version": "1.9.4",
+                "container_width_px": 800,
+                "container_height_px": 520,
+            }
+        )
+    )
+
+    assert status == ProviderStatusChanged(
+        TileProvider.OPENSTREETMAP,
+        3,
+        ProviderState.PARTIAL,
+        5,
+        3,
+        1,
+        1,
+    )
+    assert ready == MapReady("1.9.4", 800.0, 520.0)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {
+            "provider": "offline",
+            "attempt_id": 1,
+            "state": "offline",
+            "requested_tiles": 0,
+            "loaded_tiles": 0,
+            "error_tiles": 0,
+            "pending_tiles": 0,
+        },
+        {
+            "provider": "openstreetmap",
+            "attempt_id": 1,
+            "state": "online",
+            "requested_tiles": 2,
+            "loaded_tiles": 1,
+            "error_tiles": 0,
+            "pending_tiles": 0,
+        },
+    ],
+)
+def test_bridge_rejects_dishonest_provider_status_counts(fields: dict[str, object]) -> None:
+    with pytest.raises(MapBridgeError):
+        parse_map_intent(
+            json.dumps(
+                {
+                    "schema_version": BRIDGE_SCHEMA_VERSION,
+                    "type": "provider_status_changed",
+                    **fields,
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("latitude", "longitude", "expected"),
+    [
+        (" 0 ", "+0.0", GeoPoint(0.0, 0.0)),
+        ("38.8895", "-77.0353", GeoPoint(38.8895, -77.0353)),
+        ("-90", "180", GeoPoint(-90.0, 180.0)),
+    ],
+)
+def test_coordinate_input_accepts_only_valid_decimal_degrees(
+    latitude: str, longitude: str, expected: GeoPoint
+) -> None:
+    assert parse_coordinate_input(latitude, longitude) == expected
+
+
+@pytest.mark.parametrize(
+    ("latitude", "longitude", "message"),
+    [
+        ("", "1", "Latitude is required"),
+        ("91", "1", "Latitude must be between -90 and 90"),
+        ("1", "181", "Longitude must be between -180 and 180"),
+        ("1e1", "2", "decimal number"),
+        ("north", "2", "decimal number"),
+        ("1°", "2", "decimal number"),
+    ],
+)
+def test_coordinate_input_rejects_missing_non_decimal_and_out_of_range_values(
+    latitude: str, longitude: str, message: str
+) -> None:
+    with pytest.raises(MapBridgeError, match=message):
+        parse_coordinate_input(latitude, longitude)
 
 
 def test_render_message_contains_only_sanitized_action_geometry() -> None:
@@ -157,6 +289,7 @@ def test_render_message_contains_only_sanitized_action_geometry() -> None:
             ),
             pending_point=GeoPoint(38.2, -77.2),
             tile_provider=TileProvider.OPENSTREETMAP,
+            tile_attempt_id=7,
             drag_threshold_px=12,
         )
     )
@@ -167,6 +300,7 @@ def test_render_message_contains_only_sanitized_action_geometry() -> None:
     assert parsed["actions"][1]["turns"] == 1
     assert parsed["actions"][1]["direction"] == "clockwise"
     assert parsed["tile_provider"] == "openstreetmap"
+    assert parsed["tile_attempt_id"] == 7
     assert parsed["drag_threshold_px"] == 12
     assert set(parsed) == {
         "schema_version",
@@ -174,6 +308,7 @@ def test_render_message_contains_only_sanitized_action_geometry() -> None:
         "actions",
         "pending_point",
         "tile_provider",
+        "tile_attempt_id",
         "drag_threshold_px",
     }
 
@@ -243,7 +378,7 @@ def test_map_assets_are_local_versioned_and_have_no_vehicle_service_imports() ->
     assert 'src="vendor/leaflet-1.9.4/leaflet.js"' in html
     assert 'href="vendor/leaflet-1.9.4/leaflet.css"' in html
     assert 'src="map.js"' in html
-    assert "SCHEMA_VERSION = 1" in script
+    assert "SCHEMA_VERSION = 2" in script
     assert '<script src="http' not in html
     assert "https://tile.openstreetmap.org/{z}/{x}/{y}.png" in script
     assert "gmap" not in (html + script + host_source).lower()

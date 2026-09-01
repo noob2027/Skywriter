@@ -24,6 +24,7 @@ from skywriter.domain.mission import (
     ProceedAction,
 )
 from skywriter.main import create_application
+from skywriter.ui.map import BRIDGE_SCHEMA_VERSION
 from skywriter.ui.mission_builder import (
     OBSTACLE_WARNING_TEXT,
     ActionAppendRequested,
@@ -138,7 +139,7 @@ def send_map_click(widget: MissionBuilderWidget, point: GeoPoint) -> None:
     widget.map_canvas.bridge.receive_message(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": BRIDGE_SCHEMA_VERSION,
                 "type": "map_clicked",
                 "point": {
                     "latitude_deg": point.latitude_deg,
@@ -153,7 +154,7 @@ def send_point_drag(widget: MissionBuilderWidget, index: int, point: GeoPoint) -
     widget.map_canvas.bridge.receive_message(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": BRIDGE_SCHEMA_VERSION,
                 "type": "point_dragged",
                 "index": index,
                 "point": {
@@ -327,6 +328,62 @@ def test_land_edit_is_locked_and_generic_delete_or_undo_cannot_reopen() -> None:
     child(widget, QPushButton, "removeLandButton").click()
     assert len(adapter.snapshot.actions) == 1
     assert not adapter.snapshot.is_closed
+    widget.close()
+
+
+def test_coordinate_controls_validate_recenter_and_keep_authoritative_center_disabled() -> None:
+    widget, _adapter = make_builder()
+    latitude = child(widget, QLineEdit, "mapLatitudeInput")
+    longitude = child(widget, QLineEdit, "mapLongitudeInput")
+    go = child(widget, QPushButton, "mapGoToCoordinatesButton")
+    feedback = child(widget, QLabel, "mapCoordinateFeedback")
+    authoritative = child(widget, QPushButton, "mapAuthoritativeCenterButton")
+
+    latitude.setText("91")
+    longitude.setText("-77")
+    go.click()
+    assert "between -90 and 90" in feedback.text()
+
+    latitude.setText("38.8895")
+    longitude.setText("-77.0353")
+    go.click()
+    assert feedback.text() == "Centered on operator-entered coordinates: 38.889500, -77.035300."
+    assert not authoritative.isEnabled()
+    assert "no authoritative" in authoritative.toolTip()
+
+
+def test_provider_toolbar_presents_observed_loading_failure_and_retry() -> None:
+    widget, _adapter = make_builder()
+    provider = child(widget, QComboBox, "mapProviderInput")
+    retry = child(widget, QPushButton, "mapProviderRetryButton")
+    status = child(widget, QLabel, "mapProviderStatus")
+
+    assert "no network requests" in status.text()
+    assert not retry.isEnabled()
+
+    provider.setCurrentIndex(provider.findData("openstreetmap"))
+    assert retry.isEnabled()
+    widget.map_canvas.bridge.receive_message(
+        json.dumps(
+            {
+                "schema_version": BRIDGE_SCHEMA_VERSION,
+                "type": "provider_status_changed",
+                "provider": "openstreetmap",
+                "attempt_id": 1,
+                "state": "unavailable",
+                "requested_tiles": 4,
+                "loaded_tiles": 0,
+                "error_tiles": 4,
+                "pending_tiles": 0,
+            }
+        )
+    )
+    assert "OpenStreetMap unavailable" in status.text()
+    assert "TLS/DNS" in status.text()
+    assert "Retry" in status.text()
+
+    retry.click()
+    assert widget.map_canvas.tile_provider.value == "openstreetmap"
     widget.close()
 
 

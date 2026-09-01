@@ -350,6 +350,31 @@ must not accept arbitrary URL templates. Navigation remains restricted to the pa
 and tile requests are limited to the selected provider's allowlisted origins. A provider failure must
 leave mission editing usable and must not silently switch providers.
 
+Task 107 makes that provider lifecycle explicit. The Python/JavaScript bridge schema reports
+one correlated provider attempt as **Offline**, **Loading**, **Online** (at least one visible
+tile received), **Partial**, or **Unavailable**. Requested, loaded, failed, and pending counts
+must balance; unloaded/cancelled tile elements are removed from the pending count, and late
+events from an older attempt are ignored. Retry increments the attempt identifier and does
+not switch providers. A settled WebEngine resize synchronizes Leaflet's viewport so tiles and
+mission geometry do not retain an earlier widget size.
+
+The initial viewport is the neutral world at latitude 0, longitude 0, zoom 2. The operator
+may explicitly recenter using strict decimal latitude and longitude inputs. No geocoder or
+search origin is present. **Center Home / Vehicle** remains disabled because the isolated
+mission-authoring surface has no authoritative, current, same-identity point contract. A
+later implementation must add a typed Python render field with identity/freshness rules;
+JavaScript must never query MAVLink or vehicle services.
+
+The application profile uses an identifying SKYWriter user agent and a bounded disk HTTP
+cache so ordinary interactive requests honor server cache headers. This browser cache is not
+an offline-map product: bulk download, prefetch, scraping, and tile distribution remain
+absent. Routine tests use an interceptor-gated loopback fixture; the public OpenStreetMap
+service is used only by an optional bounded manual probe. The authoritative usage policy is
+the [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
+
+The Flight tab's telemetry presentation is a separate surface and intentionally has no
+basemap. Task 107 does not merge that context into mission authoring.
+
 ## 9. Persistence
 
 JSON includes `schema_version`, stable mission ID, settings, and discriminated action objects. It excludes ports, target IDs, connection state, compiled bytes, acknowledgment history, and trusted verification. Writes are atomic (temporary file plus replace); loads are parsed, migrated only through explicit migrations, structurally validated, and recompiled.
@@ -364,7 +389,7 @@ Errors are classified as validation, compatibility, identity, connection, protoc
 
 - **Unit:** model invariants, JSON round trips, compiler exact sequences, state reducer/gates, geometry, normalization.
 - **Protocol simulation:** scripted fake transport/clock for request order, duplicate/lost messages, retries, wrong target, negative ACK, stale link, and cancellation.
-- **UI:** mission flow, pending-point behavior, Land persistence/closure, field validation, command enablement, bridge schema.
+- **UI:** mission flow, pending-point behavior, Land persistence/closure, field validation, command enablement, bridge schema, mounted Leaflet readiness, provider state/retry, coordinate recentering, and controlled tile success/failure.
 - **SITL:** upload/readback, each action, mixed mission execution, command ACKs, native pre-arm rejection, pause/resume, Land, and reconnect identity.
 - **Hardware:** USB props-off, Mission Planner independent readback, then SiK props-off; staged flight only under a separately approved procedure.
 

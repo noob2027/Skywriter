@@ -30,14 +30,18 @@ The prototype is an engineering and training tool. It does not certify terrain c
    - one cruise speed for the entire mission;
    - acknowledgment of: “Verify clearance from power lines, rooftops, trees, cables, poles, and other obstacles. The map does not guarantee obstacle clearance.”
 3. Confirm Takeoff. The same primary action space becomes a persistent **Land** control.
-4. Click the map. A pending Mission Planner-style numbered point and compact action editor appear.
-5. Choose one action:
+4. The Builder starts on a neutral offline world view. Enter decimal latitude/longitude and
+   choose **Go / recenter** to reach the operating area. Optionally select OpenStreetMap
+   Standard; its visible state must report loading, received tiles, partial failure, or an
+   actionable unavailable result without silently changing providers.
+5. Click the map. A pending Mission Planner-style numbered point and compact action editor appear.
+6. Choose one action:
    - **Proceed:** enter altitude;
    - **Hold:** enter altitude and hold time;
    - **Circle:** enter altitude and radius;
    - **Land:** enter approach altitude.
-6. Confirm or cancel the pending point. Confirmed points connect in creation order.
-7. Continue adding points or select Land for a clicked location. Land closes the mission.
+7. Confirm or cancel the pending point. Confirmed points connect in creation order.
+8. Continue adding points or select Land for a clicked location. Land closes the mission.
 
 ### 3.2 Edit and review
 
@@ -196,6 +200,9 @@ ArduCopter can still reject any command. These gates do not replace native check
 - Guided navigation/setpoint streaming, follow-me, mission jumps, scripting, spline paths
 - operational geofence/limits, terrain following, obstacle detection/avoidance, route feasibility claims
 - multi-vehicle operations, cloud accounts/sync, collaborative editing, offline map cache
+- address/geocoding search, satellite/commercial basemaps, arbitrary tile URL templates,
+  bulk tile download/prefetch, or automatic Home/Vehicle centering without an authoritative
+  current point supplied through the Python mission-map contract
 
 ## 9. Prototype acceptance
 

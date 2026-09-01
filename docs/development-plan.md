@@ -188,6 +188,15 @@ uninstaller. A fail-closed packaged smoke test may prove install/launch mechanic
 it disables the MAVLink open boundary and cannot satisfy any hardware or flight gate. See
 [`docs/windows-installer.md`](windows-installer.md).
 
+Task 107 follows accepted Task 106 and repairs the installed mission-authoring map without
+widening any vehicle boundary. It keeps packaged Leaflet and the strict fixed-provider
+allowlist, adds correlated provider states/retry, validated coordinate recentering, a neutral
+world start, persistent browser cache behavior, settled-size synchronization, mounted
+WebEngine and controlled-tile tests, and a packaged readiness smoke. It does not add a
+provider account, satellite imagery, geocoding, offline tiles, MAVLink access from JavaScript,
+or any flight behavior. See
+[`codex-tasks/107-packaged-map-usability.md`](../codex-tasks/107-packaged-map-usability.md).
+
 ## 10. Validation ladder
 
 ### Gate A — automated offline
