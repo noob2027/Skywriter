@@ -193,7 +193,11 @@ if (-not $SkipInstallerSmoke) {
     }
     Copy-Item -LiteralPath (Join-Path $smokeRoot "packaged-map-smoke.json") -Destination $outputPath
     Copy-Item -LiteralPath (Join-Path $smokeRoot "packaged-map-smoke.png") -Destination $outputPath
-    Copy-Item -LiteralPath (Join-Path $smokeRoot "installed-ui-acceptance") -Destination $outputPath -Recurse
+    $acceptanceOutput = Join-Path $outputPath "installed-ui-acceptance"
+    if (Test-Path -LiteralPath $acceptanceOutput) {
+        Remove-Item -LiteralPath $acceptanceOutput -Recurse -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $smokeRoot "installed-ui-acceptance") -Destination $acceptanceOutput -Recurse
 }
 
 $artifact = Get-Item -LiteralPath $installer

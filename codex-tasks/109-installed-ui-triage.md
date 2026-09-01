@@ -61,8 +61,8 @@ baseline was 149,194,983 bytes with SHA-256
 ## Windows installer evidence
 
 - Installer: `SKYWriter-Prototype-Setup-0.1.3.exe`
-- Size: 152,286,232 bytes
-- SHA-256: `b91aeba6b18f788e85104ca25566d458b1d12225e2615a86545f0621820a7aca`
+- Size: 152,301,811 bytes
+- SHA-256: `7e0f4a96e18b0f1f07c3d4c4f3ded1c9405bfabbb1551ba08c784873a52f28a5`
 - Authenticode: unsigned (`signed: false`); SmartScreen warnings remain expected
 - Runtime: CPython 3.12.10, PyInstaller 6.22.2, Inno Setup 6.7.3
 

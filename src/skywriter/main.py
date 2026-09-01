@@ -94,6 +94,7 @@ def run(
 
     if packaged_smoke:
         completed = False
+        visual_capture_attempts = 0
 
         def common_evidence(readiness: MapReady | None) -> dict[str, object]:
             provider = map_host.provider_status
@@ -139,6 +140,8 @@ def run(
             app.exit(0)
 
         def capture_visual_surface() -> None:
+            nonlocal visual_capture_attempts
+            visual_capture_attempts += 1
             script = """
                 JSON.stringify((() => {
                   const control = document.querySelector('.leaflet-control-zoom');
@@ -159,7 +162,6 @@ def run(
                 nonlocal completed
                 if completed:
                     return
-                completed = True
                 try:
                     parsed_dom = json.loads(value) if isinstance(value, str) else {}
                 except json.JSONDecodeError:
@@ -174,12 +176,17 @@ def run(
                     screenshot_saved = pixmap.save(str(screenshot_path), "PNG")
                 surface = inspect_map_surface(pixmap.toImage(), dom)
                 ready = surface.visual_ready and screenshot_saved
+                if not ready:
+                    QTimer.singleShot(250, capture_visual_surface)
+                    return
+                completed = True
                 _write_packaged_smoke_evidence(
                     {
                         **common_evidence(map_host.readiness),
                         **surface.as_dict(),
                         "ready": ready,
                         "capture_method": "QWebEngineView.grab",
+                        "capture_attempts": visual_capture_attempts,
                         "loaded_tile_elements": dom.get("loaded_tile_elements", 0),
                         "screenshot_saved": screenshot_saved,
                     }

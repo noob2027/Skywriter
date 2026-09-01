@@ -198,10 +198,13 @@ try {
     finally {
         Pop-Location
     }
+    $acceptanceEvidencePath = Join-Path $acceptanceRoot "installed-ui-acceptance.json"
     if ($acceptance.ExitCode -ne 0) {
+        if (Test-Path -LiteralPath $acceptanceEvidencePath -PathType Leaf) {
+            Write-Host (Get-Content -LiteralPath $acceptanceEvidencePath -Raw)
+        }
         throw "Installed UI acceptance failed with exit code $($acceptance.ExitCode)."
     }
-    $acceptanceEvidencePath = Join-Path $acceptanceRoot "installed-ui-acceptance.json"
     if (-not (Test-Path -LiteralPath $acceptanceEvidencePath -PathType Leaf)) {
         throw "Installed shortcut launch did not write UI acceptance evidence."
     }

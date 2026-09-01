@@ -151,7 +151,7 @@ class _InstalledAcceptance:
         center = self.map_host.rect().center() + offset
         self._assert(self.map_host.rect().contains(center), "map click lies in rendered map")
         global_center = self.map_host.mapToGlobal(center)
-        target = QApplication.widgetAt(global_center)
+        target = self.map_host.childAt(center) or QApplication.widgetAt(global_center)
         if target is None:
             # Windows WebEngine can expose its native Chromium child outside Qt's
             # QWidget hit-test tree. Use the desktop input path at the exact rendered
