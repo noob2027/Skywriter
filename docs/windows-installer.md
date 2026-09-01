@@ -40,7 +40,7 @@ installation directory and are not deleted.
 
 ## Reproducible local build
 
-Use 64-bit Windows and exact CPython 3.12.13. From a clean checkout:
+Use 64-bit Windows and exact CPython 3.12.10. From a clean checkout:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -62,7 +62,7 @@ and packaged map assets, blocks the MAVLink open boundary, and exits after 250 m
 
 Pinned build inputs:
 
-- CPython 3.12.13 x64
+- CPython 3.12.10 x64
 - PyInstaller 6.22.2
 - pyinstaller-hooks-contrib 2026.7
 - Inno Setup 6.7.3, installer SHA-256

@@ -49,7 +49,7 @@ def test_packaging_metadata_matches_the_application_version() -> None:
     assert '#define AppName "SKYWriter Prototype"' in installer
     assert "AppPublisher=305 Skylab" in installer
     assert "Copyright" not in installer
-    assert '$requiredPython = "3.12.13"' in build
+    assert '$requiredPython = "3.12.10"' in build
     assert '$innoVersion = "6.7.3"' in build
 
 

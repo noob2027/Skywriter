@@ -18,7 +18,7 @@ telemetry, vehicle-command, parameter, connection, firmware, or SITL behavior.
 
 ## Acceptance criteria
 
-- A clean 64-bit Windows build uses CPython 3.12.13, exact application locks,
+- A clean 64-bit Windows build uses CPython 3.12.10, exact application locks,
   PyInstaller 6.22.2, hooks 2026.7, and verified Inno Setup 6.7.3.
 - PyInstaller emits a reliable `onedir` payload containing Python, PySide6/Qt WebEngine,
   Qt plugins/resources, pymavlink, local map/static assets, required dynamic dialect
