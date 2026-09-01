@@ -548,6 +548,46 @@ def test_javascript_map_click_and_viewport_intents_cross_mounted_channel() -> No
     host.close()
 
 
+def test_javascript_click_at_viewport_point_clamps_outside_request_into_map_bounds() -> None:
+    host = make_host()
+    wait_for_render(host, 0, pending=False)
+    clicked: list[GeoPoint] = []
+    host.map_clicked.connect(clicked.append)
+
+    rect = cast(
+        dict[str, float],
+        evaluate_json(
+            host,
+            "(() => {"
+            "const rect = document.getElementById('mission-map').getBoundingClientRect();"
+            "return {left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom};"
+            "})()",
+        ),
+    )
+    requested_x = rect["left"] - 24
+    requested_y = rect["top"] - 12
+    result = cast(
+        dict[str, object],
+        evaluate_json(
+            host,
+            f"window.skywriterMapTest.clickAtViewportPointDebug({{x: {requested_x}, y: {requested_y}}})",
+        ),
+    )
+    used = cast(dict[str, float], result["used"])
+    assert result["success"] is True, result
+    assert result["clamped"] is True, result
+    assert result["inBounds"] is True, result
+    assert used["x"] >= rect["left"]
+    assert used["x"] <= rect["right"]
+    assert used["y"] >= rect["top"]
+    assert used["y"] <= rect["bottom"]
+    assert abs(cast(float, used["x"]) - requested_x) > 0
+    wait_until(lambda: len(clicked) == 1)
+    assert -90 <= clicked[0].latitude_deg <= 90
+    assert -180 <= clicked[0].longitude_deg <= 180
+    host.close()
+
+
 def test_real_marker_click_and_drag_obey_platform_threshold() -> None:
     host = make_host()
     action = ProceedAction(GeoPoint(38.8895, -77.0353), 30.0)

@@ -135,24 +135,74 @@
       return false;
     }
     const rectangle = mapElement.getBoundingClientRect();
-    if (
-      point.x < rectangle.left ||
-      point.y < rectangle.top ||
-      point.x > rectangle.right ||
-      point.y > rectangle.bottom
-    ) {
+    if (rectangle.width <= 0 || rectangle.height <= 0) {
       return false;
     }
+    const clampedPoint = {
+      x: Math.max(rectangle.left, Math.min(rectangle.right - 1, point.x)),
+      y: Math.max(rectangle.top, Math.min(rectangle.bottom - 1, point.y)),
+    };
     const latLng = map.containerPointToLatLng(
-      L.point(point.x - rectangle.left, point.y - rectangle.top),
+      L.point(clampedPoint.x - rectangle.left, clampedPoint.y - rectangle.top),
     );
     if (!latLng) {
       return false;
     }
-    return (
-      sendIntent("map_clicked", { point: pointValue(latLng) }) &&
-      map.getBounds().contains(latLng)
+    return sendIntent("map_clicked", { point: pointValue(latLng) }) && map.getBounds().contains(latLng);
+  }
+
+  function clickAtViewportPointDebug(point) {
+    if (!point || typeof point !== "object") {
+      return {
+        success: false,
+        reason: "invalid-point-shape",
+        requested: point,
+        used: null,
+      };
+    }
+    if (!isFiniteNumber(point.x) || !isFiniteNumber(point.y)) {
+      return {
+        success: false,
+        reason: "invalid-point-coordinates",
+        requested: point,
+        used: null,
+      };
+    }
+    const rectangle = mapElement.getBoundingClientRect();
+    if (rectangle.width <= 0 || rectangle.height <= 0) {
+      return {
+        success: false,
+        reason: "invalid-map-dimensions",
+        requested: point,
+        used: null,
+      };
+    }
+    const usedPoint = {
+      x: Math.max(rectangle.left, Math.min(rectangle.right - 1, point.x)),
+      y: Math.max(rectangle.top, Math.min(rectangle.bottom - 1, point.y)),
+    };
+    const latLng = map.containerPointToLatLng(
+      L.point(usedPoint.x - rectangle.left, usedPoint.y - rectangle.top),
     );
+    if (!latLng) {
+      return {
+        success: false,
+        reason: "invalid-map-coordinates",
+        requested: point,
+        used: usedPoint,
+      };
+    }
+    const success = sendIntent("map_clicked", { point: pointValue(latLng) });
+    return {
+      success,
+      requested: point,
+      used: usedPoint,
+      clamped:
+        point.x !== usedPoint.x ||
+        point.y !== usedPoint.y,
+      inBounds: map.getBounds().contains(latLng),
+      reason: success ? null : "bridge-unavailable",
+    };
   }
 
   function addRenderLayer(layer) {
@@ -844,6 +894,7 @@
       };
     },
     clickAtViewportPoint: (point) => clickAtViewportPoint(point),
+    clickAtViewportPointDebug: (point) => clickAtViewportPointDebug(point),
     geographicViewport: () => ({
       center: pointValue(map.getCenter()),
       zoom: map.getZoom(),
