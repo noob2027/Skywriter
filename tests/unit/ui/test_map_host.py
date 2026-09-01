@@ -132,7 +132,8 @@ def make_host(test_tile_origin: QUrl | None = None) -> MissionMapHost:
     host.show()
     wait_until(
         lambda: bool(
-            evaluate(
+            host.readiness is not None
+            and evaluate(
                 host,
                 "Boolean(window.skywriterMapTest?.bridgeConnected())",
             )
