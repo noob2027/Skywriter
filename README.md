@@ -177,6 +177,7 @@ The documents in this starter package are the implementation source of truth. Be
 - [`docs/land-here-now.md`](docs/land-here-now.md): deliberate native landing-at-current-location gate, confirmation, proof, and SITL evidence
 - [`docs/development-plan.md`](docs/development-plan.md): phases, branch/PR workflow, gates, and validation ladder
 - [`compatibility/big-bird/README.md`](compatibility/big-bird/README.md): exact vehicle profile, sanitized evidence, disarmed bench boundary, and later-gate progression
+- [`docs/windows-installer.md`](docs/windows-installer.md): prototype Setup, shortcuts, uninstall, reproducible build, signing seam, and limitations
 - [`AGENTS.md`](AGENTS.md): binding repository rules for Codex and human contributors
 - [`codex-tasks/README.md`](codex-tasks/README.md): launch order and bounded handoffs
 
@@ -215,6 +216,19 @@ the checks. If PowerShell blocks virtual-environment activation, keep the scoped
 `Set-ExecutionPolicy` command above or invoke `.\.venv\Scripts\python.exe` directly.
 If Qt cannot initialize a display in an automated session, set
 `$env:QT_QPA_PLATFORM = "offscreen"`; do not set it for normal interactive use.
+
+## Windows prototype installer
+
+A Windows user without Python can install the prototype from
+`SKYWriter-Prototype-Setup-0.1.0.exe`. Setup installs per-user, creates a Start-menu entry,
+offers a default desktop shortcut, and registers a standard uninstaller. The application
+still starts offline and disconnected; packaging is not vehicle, bench, motor, or flight
+validation.
+
+Builds are unsigned unless explicit signing secrets are configured and may trigger
+SmartScreen. Verify `SHA256SUMS.txt` before running Setup. Nontechnical install, launch,
+uninstall, exact build, CI artifact, signing, and limitation instructions are in
+[`docs/windows-installer.md`](docs/windows-installer.md).
 
 ## Authoritative implementation references
 
