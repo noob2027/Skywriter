@@ -30,13 +30,14 @@ $installArguments = @(
     "/MERGETASKS=!desktopicon",
     "/LOG=$installLog"
 )
+$application = Join-Path $installRoot "SKYWriter.exe"
+$uninstaller = Join-Path $installRoot "unins000.exe"
+try {
 $process = Start-Process -FilePath $installer -ArgumentList $installArguments -Wait -PassThru -WindowStyle Hidden
 if ($process.ExitCode -ne 0) {
     throw "Installer smoke install failed with exit code $($process.ExitCode)."
 }
 
-$application = Join-Path $installRoot "SKYWriter.exe"
-$uninstaller = Join-Path $installRoot "unins000.exe"
 if (-not (Test-Path -LiteralPath $application -PathType Leaf)) {
     throw "Installed application is missing: $application"
 }
@@ -179,15 +180,61 @@ finally {
     }
 }
 
+$shortcutShell = New-Object -ComObject WScript.Shell
+$shortcutTarget = $shortcutShell.CreateShortcut($shortcut).TargetPath
+if ([System.IO.Path]::GetFullPath($shortcutTarget) -ne [System.IO.Path]::GetFullPath($application)) {
+    throw "Start-menu shortcut does not target the exact installed executable: $shortcutTarget"
+}
+$previousAcceptanceMode = $env:SKYWRITER_PACKAGED_UI_ACCEPTANCE
+$previousAcceptanceEvidence = $env:SKYWRITER_INSTALLED_UI_EVIDENCE
+$acceptanceRoot = Join-Path $working "installed-ui-acceptance"
+try {
+    $env:SKYWRITER_PACKAGED_UI_ACCEPTANCE = "1"
+    $env:SKYWRITER_INSTALLED_UI_EVIDENCE = $acceptanceRoot
+    Push-Location $env:SystemRoot
+    try {
+        $acceptance = Start-Process -FilePath $shortcut -Wait -PassThru
+    }
+    finally {
+        Pop-Location
+    }
+    if ($acceptance.ExitCode -ne 0) {
+        throw "Installed UI acceptance failed with exit code $($acceptance.ExitCode)."
+    }
+    $acceptanceEvidencePath = Join-Path $acceptanceRoot "installed-ui-acceptance.json"
+    if (-not (Test-Path -LiteralPath $acceptanceEvidencePath -PathType Leaf)) {
+        throw "Installed shortcut launch did not write UI acceptance evidence."
+    }
+    $acceptanceEvidence = Get-Content -LiteralPath $acceptanceEvidencePath -Raw | ConvertFrom-Json
+    if (
+        -not $acceptanceEvidence.passed -or
+        -not $acceptanceEvidence.hardware_block_environment -or
+        $acceptanceEvidence.provider -ne "offline" -or
+        $acceptanceEvidence.vehicle_io.attempts -ne 0 -or
+        $acceptanceEvidence.vehicle_io.successes -ne 0 -or
+        $acceptanceEvidence.screenshots.Count -lt 10 -or
+        $acceptanceEvidence.tab_navigation.Count -ne 3
+    ) {
+        throw "Installed UI acceptance evidence failed validation."
+    }
+}
+finally {
+    $env:SKYWRITER_PACKAGED_UI_ACCEPTANCE = $previousAcceptanceMode
+    $env:SKYWRITER_INSTALLED_UI_EVIDENCE = $previousAcceptanceEvidence
+}
+}
+finally {
 $uninstallArguments = @(
     "/VERYSILENT",
     "/SUPPRESSMSGBOXES",
     "/NORESTART",
     "/LOG=$uninstallLog"
 )
-$uninstall = Start-Process -FilePath $uninstaller -ArgumentList $uninstallArguments -Wait -PassThru -WindowStyle Hidden
-if ($uninstall.ExitCode -ne 0) {
-    throw "Installer smoke uninstall failed with exit code $($uninstall.ExitCode)."
+if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+    $uninstall = Start-Process -FilePath $uninstaller -ArgumentList $uninstallArguments -Wait -PassThru -WindowStyle Hidden
+    if ($uninstall.ExitCode -ne 0) {
+        throw "Installer smoke uninstall failed with exit code $($uninstall.ExitCode)."
+    }
 }
 if (Test-Path -LiteralPath $application) {
     throw "Application remained after uninstall: $application"
@@ -195,5 +242,6 @@ if (Test-Path -LiteralPath $application) {
 if (Test-Path -LiteralPath $shortcut) {
     throw "Start-menu shortcut remained after uninstall: $shortcut"
 }
+}
 
-Write-Host "Install, deterministic non-black rendered-map surface from an arbitrary working directory, Start-menu shortcut, and uninstall smoke passed."
+Write-Host "Install, shortcut-launched installed UI acceptance, deterministic non-black map surface, hardware blocking, and uninstall passed."

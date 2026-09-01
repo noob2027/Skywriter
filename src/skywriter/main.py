@@ -22,12 +22,16 @@ from skywriter.ui.map.rendering import (
     renderer_diagnostics,
 )
 from skywriter.ui.map.visual import inspect_map_surface
+from skywriter.ui.offline_workspace import OfflineMissionWorkspace
 
 PACKAGED_SMOKE_TEST_ARGUMENT = "--packaged-smoke-test"
 PACKAGED_VISUAL_SMOKE_TEST_ARGUMENT = "--packaged-map-visual-smoke"
+PACKAGED_UI_ACCEPTANCE_ARGUMENT = "--packaged-ui-acceptance"
 PACKAGED_SMOKE_TEST_ENVIRONMENT = "SKYWRITER_PACKAGED_SMOKE_TEST"
 PACKAGED_SMOKE_EVIDENCE_ENVIRONMENT = "SKYWRITER_PACKAGED_SMOKE_EVIDENCE"
 PACKAGED_SMOKE_SCREENSHOT_ENVIRONMENT = "SKYWRITER_PACKAGED_SMOKE_SCREENSHOT"
+PACKAGED_UI_ACCEPTANCE_MODE_ENVIRONMENT = "SKYWRITER_PACKAGED_UI_ACCEPTANCE"
+PACKAGED_UI_ACCEPTANCE_EVIDENCE_ENVIRONMENT = "SKYWRITER_INSTALLED_UI_EVIDENCE"
 PACKAGED_SMOKE_TIMEOUT_MS = 15_000
 LOGGER = logging.getLogger("skywriter.main")
 _renderer_configuration: MapRendererConfiguration | None = None
@@ -55,6 +59,7 @@ def run(
     close_after_ms: int | None = None,
     packaged_smoke: bool = False,
     packaged_visual_smoke: bool = False,
+    packaged_ui_acceptance: bool = False,
 ) -> int:
     """Show the shell and run the Qt event loop.
 
@@ -69,7 +74,22 @@ def run(
     except OSError as error:
         LOGGER.warning("Could not persist map renderer diagnostics: %s", error)
         diagnostic_path = None
-    window = MainWindow()
+    if packaged_ui_acceptance:
+        acceptance_root_value = os.environ.get(PACKAGED_UI_ACCEPTANCE_EVIDENCE_ENVIRONMENT)
+        if not acceptance_root_value:
+            raise RuntimeError("installed UI acceptance requires an evidence directory")
+        acceptance_root = Path(acceptance_root_value).resolve()
+        safe_temp = acceptance_root / "safe-temp"
+        safe_temp.mkdir(parents=True, exist_ok=True)
+        mission_path = safe_temp / "accepted-mission.json"
+        workspace = OfflineMissionWorkspace(
+            save_path_picker=lambda _initial: mission_path,
+            load_path_picker=lambda: mission_path,
+        )
+        window = MainWindow(mission_workspace=workspace)
+    else:
+        acceptance_root = None
+        window = MainWindow()
     map_host = window.mission_workspace.builder.map_canvas
 
     if packaged_smoke:
@@ -214,6 +234,18 @@ def run(
 
     window.show()
 
+    if packaged_ui_acceptance:
+        assert acceptance_root is not None
+
+        def finish_installed_acceptance() -> None:
+            from skywriter.ui.installed_acceptance import execute_installed_ui_acceptance
+
+            passed = execute_installed_ui_acceptance(window, acceptance_root)
+            window.close()
+            app.exit(0 if passed else 4)
+
+        QTimer.singleShot(0, finish_installed_acceptance)
+
     if packaged_smoke and map_host.readiness is not None:
         if packaged_visual_smoke:
             begin_visual_smoke(map_host.readiness)
@@ -231,6 +263,15 @@ def main() -> int:
     """Run SKYWriter from its console-script or module entry point."""
 
     arguments = list(sys.argv)
+    packaged_ui_acceptance = (
+        PACKAGED_UI_ACCEPTANCE_ARGUMENT in arguments
+        or os.environ.get(PACKAGED_UI_ACCEPTANCE_MODE_ENVIRONMENT) == "1"
+    )
+    if PACKAGED_UI_ACCEPTANCE_ARGUMENT in arguments:
+        arguments.remove(PACKAGED_UI_ACCEPTANCE_ARGUMENT)
+    if packaged_ui_acceptance:
+        os.environ[PACKAGED_SMOKE_TEST_ENVIRONMENT] = "1"
+        return run(arguments, packaged_ui_acceptance=True)
     if PACKAGED_VISUAL_SMOKE_TEST_ARGUMENT in arguments:
         arguments.remove(PACKAGED_VISUAL_SMOKE_TEST_ARGUMENT)
         os.environ[PACKAGED_SMOKE_TEST_ENVIRONMENT] = "1"

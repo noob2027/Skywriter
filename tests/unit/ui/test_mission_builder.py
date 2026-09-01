@@ -6,13 +6,17 @@ import json
 from dataclasses import replace
 from typing import TypeVar, cast
 
+import pytest
+from PySide6.QtCore import QPoint, QRect
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
+    QScrollArea,
     QWidget,
 )
 
@@ -21,6 +25,7 @@ from skywriter.domain.mission import (
     GeoPoint,
     HoldAction,
     LandAction,
+    MissionSettings,
     ProceedAction,
 )
 from skywriter.main import create_application
@@ -168,7 +173,7 @@ def send_point_drag(widget: MissionBuilderWidget, index: int, point: GeoPoint) -
 
 def test_takeoff_requires_fields_and_exact_warning_acknowledgment() -> None:
     widget, adapter = make_builder()
-    error = child(widget, QLabel, "builderError")
+    error = child(widget, QLabel, "takeoffValidationError")
     warning = child(widget, QLabel, "obstacleWarningText")
 
     child(widget, QPushButton, "confirmTakeoffButton").click()
@@ -207,7 +212,9 @@ def test_pending_cancel_does_not_commit_a_point_and_required_fields_are_enforced
     )
     child(widget, QLineEdit, "actionAltitudeInput").setText("30")
     child(widget, QPushButton, "confirmActionButton").click()
-    assert "Hold time must be a number" in child(widget, QLabel, "builderError").text()
+    assert (
+        "Hold time must be a number" in child(widget, QLabel, "pendingPointValidationError").text()
+    )
     assert adapter.snapshot.actions == ()
     widget.close()
 
@@ -399,4 +406,77 @@ def test_clear_mission_explicitly_resets_a_closed_mission() -> None:
 
     assert adapter.snapshot.actions == ()
     assert not adapter.snapshot.is_closed
+    widget.close()
+
+
+@pytest.mark.parametrize(
+    ("kind", "invalid_field", "detail", "expected"),
+    (
+        (ActionKind.PROCEED, "actionAltitudeInput", None, "Altitude must be a number"),
+        (ActionKind.HOLD, "holdTimeInput", None, "Hold time must be a number"),
+        (ActionKind.CIRCLE, "circleRadiusInput", "0", "must be greater than zero"),
+        (ActionKind.LAND, "actionAltitudeInput", None, "Altitude must be a number"),
+    ),
+)
+def test_invalid_confirm_focuses_field_and_scrolls_adjacent_feedback_into_view(
+    kind: ActionKind,
+    invalid_field: str,
+    detail: str | None,
+    expected: str,
+) -> None:
+    widget, adapter = make_builder()
+    widget.resize(980, 520)
+    confirm_takeoff(widget)
+    send_map_click(widget, GeoPoint(38.0, -77.0))
+    combo = child(widget, QComboBox, "actionKindInput")
+    combo.setCurrentIndex(combo.findData(kind.value))
+    if kind in (ActionKind.HOLD, ActionKind.CIRCLE, ActionKind.LAND):
+        child(widget, QLineEdit, "actionAltitudeInput").setText(
+            "30" if kind is not ActionKind.LAND else ""
+        )
+    if kind is ActionKind.CIRCLE:
+        child(widget, QLineEdit, "circleRadiusInput").setText(detail or "")
+
+    child(widget, QPushButton, "confirmActionButton").click()
+    app = cast(QApplication, QApplication.instance())
+    app.processEvents()
+
+    error = child(widget, QLabel, "pendingPointValidationError")
+    field = child(widget, QLineEdit, invalid_field)
+    scroll = child(widget, QScrollArea, "missionSidebarScroll")
+    viewport = scroll.viewport()
+    viewport_rect = QRect(viewport.mapToGlobal(QPoint()), viewport.size())
+    error_rect = QRect(error.mapToGlobal(QPoint()), error.size())
+    assert expected in error.text()
+    assert error.isVisible()
+    assert viewport_rect.contains(error_rect)
+    assert field.hasFocus()
+    assert expected in field.accessibleDescription()
+    assert adapter.snapshot.actions == ()
+    assert widget.pending_point == GeoPoint(38.0, -77.0)
+    widget.close()
+
+
+def test_confirm_point_locks_reentry_until_snapshot_resolves_once() -> None:
+    app = create_application(["skywriter-confirm-reentry-test"])
+    widget = MissionBuilderWidget()
+    received: list[object] = []
+    widget.intent_emitted.connect(received.append)
+    settings = MissionSettings(25.0, 6.0, True)
+    widget.render_snapshot(MissionBuilderSnapshot(settings=settings))
+    widget.begin_pending(GeoPoint(38.0, -77.0))
+    child(widget, QLineEdit, "actionAltitudeInput").setText("30")
+    confirm = child(widget, QPushButton, "confirmActionButton")
+
+    confirm.click()
+    confirm.click()
+
+    assert len(received) == 1
+    assert not confirm.isEnabled()
+    intent = cast(ActionAppendRequested, received[0])
+    widget.render_snapshot(MissionBuilderSnapshot(settings, (intent.action,)))
+    app.processEvents()
+    assert widget.pending_point is None
+    assert child(widget, QListWidget, "missionActionList").count() == 1
+    assert "Point 1 confirmed" in child(widget, QLabel, "builderSuccess").text()
     widget.close()
