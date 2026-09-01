@@ -185,8 +185,7 @@ class _InstalledAcceptance:
         try:
             self._wait_until(
                 lambda: (
-                    self.builder.pending_point is not None
-                    and self.builder.editing_index is None
+                    self.builder.pending_point is not None and self.builder.editing_index is None
                 ),
                 "rendered map click",
             )
@@ -197,8 +196,7 @@ class _InstalledAcceptance:
             )
             self._wait_until(
                 lambda: (
-                    self.builder.pending_point is not None
-                    and self.builder.editing_index is None
+                    self.builder.pending_point is not None and self.builder.editing_index is None
                 ),
                 "rendered map click fallback via JS intent",
             )
