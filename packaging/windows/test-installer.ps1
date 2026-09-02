@@ -41,6 +41,10 @@ if ($process.ExitCode -ne 0) {
 if (-not (Test-Path -LiteralPath $application -PathType Leaf)) {
     throw "Installed application is missing: $application"
 }
+$serialImport = Start-Process -FilePath $application -ArgumentList "--packaged-serial-import-smoke" -Wait -PassThru -WindowStyle Hidden
+if ($serialImport.ExitCode -ne 0) {
+    throw "Packaged Windows serial-enumeration runtime import failed with exit code $($serialImport.ExitCode)."
+}
 if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) {
     throw "Start-menu shortcut is missing: $shortcut"
 }
@@ -51,8 +55,10 @@ $previousTileOrigin = $env:SKYWRITER_PACKAGED_SMOKE_TILE_ORIGIN
 $smokeEvidence = Join-Path $working "packaged-map-smoke.json"
 $smokeScreenshot = Join-Path $working "packaged-map-smoke.png"
 $fixtureTile = Join-Path $working "controlled-tile.png"
+$tileStopSignal = Join-Path $working "controlled-tile-server.stop"
 $tileServer = $null
 try {
+    Remove-Item -LiteralPath $tileStopSignal -Force -ErrorAction SilentlyContinue
     Add-Type -AssemblyName System.Drawing
     $tileBitmap = [System.Drawing.Bitmap]::new(256, 256)
     $tileGraphics = [System.Drawing.Graphics]::FromImage($tileBitmap)
@@ -79,8 +85,8 @@ try {
     $tilePort = ([System.Net.IPEndPoint]$portProbe.LocalEndpoint).Port
     $portProbe.Stop()
     $tileBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($fixtureTile))
-    $tileServer = Start-Job -ArgumentList $tilePort, $tileBase64 -ScriptBlock {
-        param([int]$Port, [string]$TileBase64)
+    $tileServer = Start-Job -ArgumentList $tilePort, $tileBase64, $tileStopSignal -ScriptBlock {
+        param([int]$Port, [string]$TileBase64, [string]$StopSignal)
         $tile = [Convert]::FromBase64String($TileBase64)
         $listener = [System.Net.Sockets.TcpListener]::new(
             [System.Net.IPAddress]::Loopback,
@@ -88,7 +94,11 @@ try {
         )
         $listener.Start()
         try {
-            while ($true) {
+            while (-not (Test-Path -LiteralPath $StopSignal)) {
+                if (-not $listener.Pending()) {
+                    Start-Sleep -Milliseconds 50
+                    continue
+                }
                 $client = $listener.AcceptTcpClient()
                 try {
                     $stream = $client.GetStream()
@@ -175,9 +185,15 @@ finally {
     $env:SKYWRITER_PACKAGED_SMOKE_SCREENSHOT = $previousScreenshot
     $env:SKYWRITER_PACKAGED_SMOKE_TILE_ORIGIN = $previousTileOrigin
     if ($null -ne $tileServer) {
-        Stop-Job -Job $tileServer -ErrorAction SilentlyContinue
-        Remove-Job -Job $tileServer -Force -ErrorAction SilentlyContinue
+        [IO.File]::WriteAllText($tileStopSignal, "stop")
+        $stoppedTileServer = Wait-Job -Job $tileServer -Timeout 10
+        if ($null -eq $stoppedTileServer) {
+            throw "Controlled tile server did not stop after its signal."
+        }
+        Receive-Job -Job $tileServer -ErrorAction SilentlyContinue | Out-Null
+        Remove-Job -Job $tileServer -ErrorAction SilentlyContinue
     }
+    Remove-Item -LiteralPath $tileStopSignal -Force -ErrorAction SilentlyContinue
 }
 
 $shortcutShell = New-Object -ComObject WScript.Shell
@@ -215,6 +231,13 @@ try {
         $acceptanceEvidence.provider -ne "offline" -or
         $acceptanceEvidence.vehicle_io.attempts -ne 0 -or
         $acceptanceEvidence.vehicle_io.successes -ne 0 -or
+        $acceptanceEvidence.serial_selection.enumerated_count -ne 1 -or
+        $acceptanceEvidence.serial_selection.enumerated_label -notmatch "COM42.*installed-acceptance serial fixture" -or
+        $acceptanceEvidence.serial_selection.auto_selected -or
+        $acceptanceEvidence.serial_selection.usb_default_baudrate -ne 115200 -or
+        $acceptanceEvidence.serial_selection.selected_link_kind -ne "sik" -or
+        $acceptanceEvidence.serial_selection.sik_default_baudrate -ne 57600 -or
+        $acceptanceEvidence.serial_selection.vehicle_open_clicked -or
         $acceptanceEvidence.screenshots.Count -lt 10 -or
         $acceptanceEvidence.tab_navigation.Count -ne 3
     ) {

@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
+import importlib
 import os
 import struct
 import sys
 from collections.abc import Sequence
+from importlib import metadata
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import skywriter.main as main_module
+import skywriter.packaged_runtime_smoke as runtime_smoke
+import tools.packaging.collect_licenses as license_collector
 from skywriter import __version__
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -49,18 +55,26 @@ def test_packaging_metadata_matches_the_application_version() -> None:
     assert '#define AppName "SKYWriter Prototype"' in installer
     assert "AppPublisher=305 Skylab" in installer
     assert "Copyright" not in installer
-    assert '$requiredPython = "3.12.10"' in build
+    assert '$requiredPython = "3.12.13"' in build
     assert '$innoVersion = "6.7.3"' in build
 
 
-def test_payload_includes_map_assets_notices_and_dynamic_mavlink_dialect() -> None:
+def test_payload_includes_map_assets_notices_mavlink_and_windows_serial_enumerator() -> None:
     spec = SPEC.read_text(encoding="utf-8")
 
     assert 'includes=["ui/map/static/**/*"]' in spec
     assert '(str(NOTICES_ROOT), "notices")' in spec
     assert '"pymavlink.dialects.v20.ardupilotmega"' in spec
+    assert '"serial.tools.list_ports_windows"' in spec
     assert 'contents_directory="_internal"' in spec
     assert "console=False" in spec
+
+
+def test_spec_rejects_bundled_workspace_poppler_icu_shadow() -> None:
+    spec = SPEC.read_text(encoding="utf-8")
+
+    assert 'POPPLER_ICU_SHADOWS = {"icudt78.dll", "icuuc.dll"}' in spec
+    assert 'and "poppler" in' in spec
 
 
 def test_notices_cover_the_bundled_pyinstaller_bootloader() -> None:
@@ -68,6 +82,28 @@ def test_notices_cover_the_bundled_pyinstaller_bootloader() -> None:
 
     assert '"pyinstaller"' in collector
     assert '"pyinstaller-hooks-contrib"' in collector
+
+
+def test_pyserial_notice_uses_the_exact_version_pinned_upstream_fallback(
+    tmp_path: Path,
+) -> None:
+    distribution = metadata.distribution("pyserial")
+
+    assert distribution.version == license_collector.PYSERIAL_FALLBACK_VERSION
+    assert not distribution.metadata.get_all("License-File")
+
+    copied, detail = license_collector._copy_pinned_license_fallback(
+        "pyserial",
+        distribution,
+        tmp_path,
+    )
+
+    assert copied == ["pyserial/LICENSE.txt", "pyserial/SOURCE.txt"]
+    assert "repository-pinned upstream v3.5 fallback" in detail
+    license_bytes = (tmp_path / "pyserial" / "LICENSE.txt").read_bytes()
+    assert hashlib.sha256(license_bytes).hexdigest() == license_collector.PYSERIAL_LICENSE_SHA256
+    provenance = (tmp_path / "pyserial" / "SOURCE.txt").read_text(encoding="utf-8")
+    assert "https://raw.githubusercontent.com/pyserial/pyserial/v3.5/LICENSE.txt" in provenance
 
 
 def test_provisional_icon_is_a_multisize_windows_icon() -> None:
@@ -124,6 +160,28 @@ def test_packaged_smoke_argument_is_bounded_and_sets_the_io_guard(
     assert os.environ[main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT] == "1"
 
 
+def test_packaged_serial_import_smoke_checks_exact_windows_runtime_without_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    imported: list[str] = []
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["SKYWriter.exe", runtime_smoke.PACKAGED_SERIAL_IMPORT_SMOKE_ARGUMENT],
+    )
+
+    def import_module(name: str) -> object:
+        imported.append(name)
+        return SimpleNamespace(VERSION="3.5")
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+    monkeypatch.delenv(main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT, raising=False)
+
+    assert main_module.main() == 0
+    assert imported == ["serial", "serial.tools.list_ports_windows"]
+    assert os.environ[main_module.PACKAGED_SMOKE_TEST_ENVIRONMENT] == "1"
+
+
 def test_packaged_visual_smoke_is_hardware_blocked_and_renderer_owned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -165,6 +223,7 @@ def test_packaged_visual_smoke_is_hardware_blocked_and_renderer_owned(
         encoding="utf-8"
     )
     assert "--packaged-map-visual-smoke" in installer_smoke
+    assert "--packaged-serial-import-smoke" in installer_smoke
     assert "SKYWRITER_PACKAGED_SMOKE_TILE_ORIGIN" in installer_smoke
     assert "QTWEBENGINE_CHROMIUM_FLAGS" not in installer_smoke
     assert "--no-sandbox" not in installer_smoke
@@ -218,6 +277,8 @@ def test_installed_ui_acceptance_uses_shortcut_safe_paths_and_hardware_guard(
     assert "Start-Process -FilePath $shortcut" in installer_smoke
     assert "SKYWRITER_INSTALLED_UI_EVIDENCE" in installer_smoke
     assert "vehicle_io.attempts -ne 0" in installer_smoke
+    assert "serial_selection.enumerated_count -ne 1" in installer_smoke
+    assert "serial_selection.vehicle_open_clicked" in installer_smoke
     assert "installed-ui-acceptance.json" in installer_smoke
     install_start = installer_smoke.index("Start-Process -FilePath $installer")
     outer_try = installer_smoke.rfind("try {", 0, install_start)

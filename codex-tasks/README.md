@@ -27,6 +27,7 @@ Run the required tests and return the requested handoff report.
 | Packaged map usability | 107 | 1 | Task 106 merged; current `main` accepted |
 | Windows map black-surface hotfix | 108 | 1 | Task 107 merged; installed acceptance failed |
 | Installed UI acceptance | 109 | 1 | Task 108 merged; current `main` accepted |
+| Installed Connected composition | 110 | 1 | Task 109 merged; current `main` accepted |
 
 Parallel means separate branches with non-overlapping ownership, not multiple tasks in one Codex prompt. Tasks 002–004 and 006–008 are the only planned parallel waves. Stop a parallel task and raise a dedicated contract PR if shared interfaces must change.
 
@@ -56,5 +57,6 @@ Parallel means separate branches with non-overlapping ownership, not multiple ta
 - [`107-packaged-map-usability.md`](107-packaged-map-usability.md)
 - [`108-windows-webengine-black-surface.md`](108-windows-webengine-black-surface.md)
 - [`109-installed-ui-triage.md`](109-installed-ui-triage.md)
+- [`110-installed-connected-composition.md`](110-installed-connected-composition.md)
 
 Every task ends with a pull request; Codex must not merge it, create tags, or begin the next handoff.

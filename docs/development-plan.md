@@ -212,6 +212,15 @@ changes no MAVLink command, compiler, telemetry, vehicle, or firmware architectu
 [`codex-tasks/109-installed-ui-triage.md`](../codex-tasks/109-installed-ui-triage.md) and
 [`docs/task-109-control-triage.md`](task-109-control-triage.md).
 
+Task 110 follows accepted Task 109 and binds only the existing Connected mission/telemetry
+compartment for an explicitly selected Windows serial port, link kind, baud, and vehicle.
+It adds no startup enumeration or serial I/O, no automatic port/vehicle choice, and no
+Preflight, Arm, AUTO, Pause/Resume, Land Here Now, parameter, stream-request, firmware, or
+driver behavior. Its installed acceptance uses a hardware-blocked serial inventory fixture
+to prove the selection/gating surface without opening a vehicle. See
+[`codex-tasks/110-installed-connected-composition.md`](../codex-tasks/110-installed-connected-composition.md)
+and [`docs/task-110-connected-production.md`](task-110-connected-production.md).
+
 ## 10. Validation ladder
 
 ### Gate A — automated offline

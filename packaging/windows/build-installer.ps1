@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$PythonPath = "python",
-    [string]$BuildRoot = (Join-Path ([System.IO.Path]::GetTempPath()) "skywriter-task109-build"),
+    [string]$BuildRoot = (Join-Path ([System.IO.Path]::GetTempPath()) "skywriter-task110-build"),
     [string]$OutputDirectory = (Join-Path $PSScriptRoot "..\..\artifacts\windows"),
     [string]$InnoSetupCompiler = "",
     [switch]$SkipInstallerSmoke
@@ -10,7 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$requiredPython = "3.12.10"
+$requiredPython = "3.12.13"
 $innoVersion = "6.7.3"
 $innoSha256 = "9C73C3BAE7ED48D44112A0F48E66742C00090BDB5BEF71D9D3C056C66E97B732"
 $innoUri = "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe"
@@ -21,8 +21,8 @@ $outputPath = [System.IO.Path]::GetFullPath($OutputDirectory)
 function Assert-SafeBuildPath([string]$Path) {
     $root = [System.IO.Path]::GetPathRoot($Path)
     $leaf = Split-Path -Leaf $Path
-    if ($Path -eq $root -or $Path -eq $repositoryRoot -or $leaf -notmatch "skywriter|sw10[6-9]") {
-        throw "BuildRoot must be a dedicated path whose name contains 'skywriter' or 'sw106' through 'sw109': $Path"
+    if ($Path -eq $root -or $Path -eq $repositoryRoot -or $leaf -notmatch "skywriter|sw10[6-9]|sw110") {
+        throw "BuildRoot must be a dedicated path whose name contains 'skywriter' or 'sw106' through 'sw110': $Path"
     }
 }
 

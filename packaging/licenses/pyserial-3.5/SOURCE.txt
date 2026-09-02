@@ -1,0 +1,8 @@
+Package: pyserial 3.5
+License source: https://raw.githubusercontent.com/pyserial/pyserial/v3.5/LICENSE.txt
+Release source: https://github.com/pyserial/pyserial/releases/tag/v3.5
+Release commit: 0e76347 (as displayed by the upstream v3.5 release)
+
+The pyserial 3.5 wheel declares no License-File metadata and contains no license file.
+SKYWriter therefore vendors the upstream v3.5 license text solely for binary-distribution
+notices. The collector permits this repository fallback only for the exact 3.5 version.

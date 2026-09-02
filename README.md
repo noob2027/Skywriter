@@ -170,6 +170,7 @@ The documents in this starter package are the implementation source of truth. Be
 - [`docs/product-specification.md`](docs/product-specification.md): user behavior, requirements, exclusions, and acceptance criteria
 - [`docs/architecture.md`](docs/architecture.md): domain model, state machines, interfaces, protocol boundaries, and test seams
 - [`docs/connected-integration.md`](docs/connected-integration.md): USB/SiK composition, invalidation, and stock-SITL evidence
+- [`docs/task-110-connected-production.md`](docs/task-110-connected-production.md): explicit serial selection, installed Connected mission/telemetry composition, packaging evidence, and supervised C1 boundary
 - [`docs/native-prearm.md`](docs/native-prearm.md): exact native pre-arm request, review gate, and SITL evidence boundary
 - [`docs/normal-arm.md`](docs/normal-arm.md): gated normal Arm, exact ACK/telemetry proof, and stock-SITL evidence
 - [`docs/auto-start.md`](docs/auto-start.md): fixed native AUTO start, Running proof, and link-interruption evidence
@@ -220,7 +221,7 @@ If Qt cannot initialize a display in an automated session, set
 ## Windows prototype installer
 
 A Windows user without Python can install the prototype from
-`SKYWriter-Prototype-Setup-0.1.3.exe`. Setup installs per-user, creates a Start-menu entry,
+`SKYWriter-Prototype-Setup-0.1.4.exe`. Setup installs per-user, creates a Start-menu entry,
 offers a default desktop shortcut, and registers a standard uninstaller. The application
 still starts offline and disconnected; packaging is not vehicle, bench, motor, or flight
 validation.
@@ -234,23 +235,26 @@ providers. OpenStreetMap is a best-effort prototype provider, not a production S
 is no address search, satellite provider, offline tile download, or map-derived Home/Vehicle
 position.
 
-Version 0.1.3 retains Qt WebEngine's Chromium software-rendering path on Windows because the
+Version 0.1.4 retains Qt WebEngine's Chromium software-rendering path on Windows because the
 accepted 0.1.1 GPU-compositor path was reproduced painting the entire embedded map black.
 The installed smoke now inspects captured map pixels, controlled local tiles, and visible
 Leaflet controls; page/bridge readiness alone is no longer sufficient.
 
-The 0.1.3 installed acceptance also drives the real Builder through its installed Start-menu
+The 0.1.4 installed acceptance also drives the real Builder through its installed Start-menu
 shortcut at 1498×758 and 1366×768. Confirm-point validation is adjacent, focused, and
 scrolled into view; downstream rejection preserves entered values, while success updates
-the list, summary, route, and marker exactly once. Connected, Preflight, and Flight controls
-remain visibly disabled in this unbound shell and acceptance records zero vehicle-I/O
-attempts. See the complete
-[`installed-control triage`](docs/task-109-control-triage.md).
+the list, summary, route, and marker exactly once. Its hardware-blocked Connected pass then
+explicitly refreshes a deterministic serial inventory, proves that no port is auto-selected,
+shows the human port description, and verifies USB 115200 / SiK 57600 defaults without
+clicking Open; vehicle-I/O attempts remain zero. In a normal launch, Connected mission and
+receive-only telemetry operations are available only after explicit port/link/vehicle
+selection, while Preflight, Arm, AUTO, Pause/Resume, and Land Here Now remain disabled. See
+[`Task 110 connected production`](docs/task-110-connected-production.md).
 
-The verified Task 109 artifact is `SKYWriter-Prototype-Setup-0.1.3.exe`, 152,292,804
-bytes, SHA-256
-`5232AB78A14A92C9FD244AF5888CB2EA38040FD519FCED7BE3468A5439E24E4D`. It is unsigned,
-so SmartScreen/reputation warnings remain expected.
+The verified Task 109 artifact remains recorded in its task report. Task 110 supersedes it
+with the unsigned 0.1.4 artifact recorded in
+[`docs/task-110-connected-production.md`](docs/task-110-connected-production.md), so
+SmartScreen/reputation warnings remain expected.
 
 Builds are unsigned unless explicit signing secrets are configured and may trigger
 SmartScreen. Verify `SHA256SUMS.txt` before running Setup. Nontechnical install, launch,

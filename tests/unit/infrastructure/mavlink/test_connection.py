@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sys
 from collections.abc import Mapping
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -14,7 +16,10 @@ from skywriter.infrastructure.mavlink.connection import (
     TargetSelectionError,
     TransportDescriptor,
     TransportKind,
+    TransportOpenError,
+    TransportOpenFailureCode,
     discover_targets,
+    open_pymavlink_link,
     select_target,
 )
 
@@ -116,6 +121,83 @@ def test_transport_classification_is_explicit_not_inferred_from_endpoint() -> No
 
     assert usb.kind is TransportKind.USB
     assert sik.kind is TransportKind.SIK
+
+
+def test_selected_serial_baud_crosses_the_pymavlink_open_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_connection(endpoint: str, **options: object) -> RawConnection:
+        observed.update(endpoint=endpoint, **options)
+        return RawConnection([])
+
+    fake_mavutil = SimpleNamespace(
+        set_dialect=lambda dialect: observed.update(selected_dialect=dialect),
+        mavlink=SimpleNamespace(WIRE_PROTOCOL_VERSION="2.0"),
+        mavlink_connection=fake_connection,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "pymavlink",
+        SimpleNamespace(__version__="2.4.41", mavutil=fake_mavutil),
+    )
+    monkeypatch.delenv("SKYWRITER_PACKAGED_SMOKE_TEST", raising=False)
+    monkeypatch.delenv("MAVLINK20", raising=False)
+
+    link = open_pymavlink_link(TransportDescriptor("COM7", TransportKind.SIK, 57600))
+
+    assert link.descriptor.baudrate == 57600
+    assert observed == {
+        "selected_dialect": "ardupilotmega",
+        "endpoint": "COM7",
+        "source_system": 255,
+        "source_component": 190,
+        "dialect": "ardupilotmega",
+        "baud": 57600,
+    }
+    link.close()
+
+
+@pytest.mark.parametrize(
+    ("error", "code", "message"),
+    [
+        (
+            PermissionError("Access is denied"),
+            TransportOpenFailureCode.BUSY,
+            "Close Mission Planner",
+        ),
+        (
+            FileNotFoundError("No such file or directory"),
+            TransportOpenFailureCode.UNAVAILABLE,
+            "Refresh the port list",
+        ),
+    ],
+)
+def test_serial_open_failures_are_typed_for_busy_and_disappeared_ports(
+    monkeypatch: pytest.MonkeyPatch,
+    error: OSError,
+    code: TransportOpenFailureCode,
+    message: str,
+) -> None:
+    fake_mavutil = SimpleNamespace(
+        set_dialect=lambda _dialect: None,
+        mavlink=SimpleNamespace(WIRE_PROTOCOL_VERSION="2.0"),
+        mavlink_connection=lambda _endpoint, **_options: (_ for _ in ()).throw(error),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "pymavlink",
+        SimpleNamespace(__version__="2.4.41", mavutil=fake_mavutil),
+    )
+    monkeypatch.delenv("SKYWRITER_PACKAGED_SMOKE_TEST", raising=False)
+    monkeypatch.delenv("MAVLINK20", raising=False)
+
+    with pytest.raises(TransportOpenError) as raised:
+        open_pymavlink_link(TransportDescriptor("COM7", TransportKind.USB, 115200))
+
+    assert raised.value.code is code
+    assert message in raised.value.detail
 
 
 def test_link_contract_exposes_only_closed_mission_service_sends() -> None:

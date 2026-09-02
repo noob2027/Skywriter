@@ -492,35 +492,82 @@ class _InstalledAcceptance:
 
     def _exercise_tabs_and_hardware_gates(self) -> None:
         tabs = self._child(QTabWidget, "primaryViews")
-        gate_names = (
-            "connectedInteractionGate",
-            "preflightInteractionGate",
-            "flightInteractionGate",
-        )
-        controls = (
-            (
-                "discoverUsbButton",
-                "discoverSikButton",
-                "inspectOnboardMissionButton",
-                "uploadAndVerifyButton",
-                "refreshConnectedTelemetryButton",
-                "reverifyConnectedMissionButton",
-                "disconnectConnectedButton",
-            ),
-            ("requestNativePrearmButton", "normalArmButton"),
-            (
-                "nativeAutoStartButton",
-                "nativePauseButton",
-                "nativeResumeButton",
-                "landHereNowButton",
-                "landHereNowConfirmButton",
-                "landHereNowCancelButton",
-            ),
-        )
         navigation = cast(list[object], self.evidence["tab_navigation"])
-        for index, (gate_name, control_names) in enumerate(
-            zip(gate_names, controls, strict=True), start=1
-        ):
+
+        tabs.setCurrentIndex(1)
+        QTest.qWait(50)
+        connected_gate = self._child(QLabel, "connectedInteractionGate")
+        self._assert(not connected_gate.isVisible(), "Connected production composition is enabled")
+        refresh_ports = self._child(QPushButton, "refreshSerialPortsButton")
+        discover = self._child(QPushButton, "discoverSelectedLinkButton")
+        ports = self._child(QComboBox, "serialPortSelection")
+        link_kind = self._child(QComboBox, "serialLinkKindSelection")
+        baudrate = self._child(QComboBox, "serialBaudrateSelection")
+        self._assert(refresh_ports.isEnabled(), "explicit serial refresh is available")
+        self._assert(not discover.isEnabled(), "no port is selected before explicit refresh")
+        QTest.mouseClick(refresh_ports, Qt.MouseButton.LeftButton)
+        self._wait_until(
+            lambda: ports.count() == 2 and not self.window.connected_controller.busy,
+            "installed serial fixture enumeration",
+        )
+        self._assert(ports.currentData() is None, "enumeration does not auto-select a port")
+        self._assert("COM42" in ports.itemText(1), "enumerated device name is visible")
+        self._assert(
+            "installed-acceptance serial fixture" in ports.itemText(1),
+            "human-readable serial description is visible",
+        )
+        ports.setFocus()
+        QTest.keyClick(ports, Qt.Key.Key_Down)
+        self._assert(ports.currentIndex() == 1, "operator explicitly selected the serial port")
+        self._assert(link_kind.currentData() == "usb", "USB is the initial link kind")
+        self._assert(baudrate.currentData() == 115200, "USB defaults to 115200 baud")
+        self._assert(discover.isEnabled(), "open is gated on an explicit port selection")
+        link_kind.setFocus()
+        QTest.keyClick(link_kind, Qt.Key.Key_End)
+        self._assert(link_kind.currentData() == "sik", "operator selected SiK link kind")
+        self._assert(baudrate.currentData() == 57600, "SiK defaults to 57600 baud")
+        self._assert(
+            not self._child(QPushButton, "inspectOnboardMissionButton").isEnabled(),
+            "mission inspection remains gated until discovery and vehicle selection",
+        )
+        navigation.append(
+            {
+                "index": 1,
+                "label": tabs.tabText(1),
+                "gate": "explicit serial selection; no automatic open",
+                "enumerated_label": ports.itemText(1),
+                "selected_link_kind": link_kind.currentData(),
+                "selected_baudrate": baudrate.currentData(),
+                "vehicle_open_clicked": False,
+            }
+        )
+        self.evidence["serial_selection"] = {
+            "enumerated_count": ports.count() - 1,
+            "enumerated_label": ports.itemText(1),
+            "auto_selected": False,
+            "usb_default_baudrate": 115200,
+            "selected_link_kind": link_kind.currentData(),
+            "sik_default_baudrate": baudrate.currentData(),
+            "vehicle_open_clicked": False,
+        }
+        self._capture("41-tab-connected-serial-selection")
+
+        command_tabs = (
+            (2, "preflightInteractionGate", ("requestNativePrearmButton", "normalArmButton")),
+            (
+                3,
+                "flightInteractionGate",
+                (
+                    "nativeAutoStartButton",
+                    "nativePauseButton",
+                    "nativeResumeButton",
+                    "landHereNowButton",
+                    "landHereNowConfirmButton",
+                    "landHereNowCancelButton",
+                ),
+            ),
+        )
+        for index, gate_name, control_names in command_tabs:
             tabs.setCurrentIndex(index)
             QTest.qWait(50)
             gate = self._child(QLabel, gate_name)
@@ -530,16 +577,7 @@ class _InstalledAcceptance:
                 button = self._child(QPushButton, name)
                 disabled[name] = not button.isEnabled()
                 self._assert(not button.isEnabled(), f"{name} remains fail closed")
-            if index == 1:
-                target = self._child(QComboBox, "connectedTargetSelection")
-                replacement = self._child(QCheckBox, "confirmMissionReplacement")
-                disabled[target.objectName()] = not target.isEnabled()
-                disabled[replacement.objectName()] = not replacement.isEnabled()
-                self._assert(not target.isEnabled(), "target selection remains fail closed")
-                self._assert(
-                    not replacement.isEnabled(), "replacement approval remains fail closed"
-                )
-            elif index == 2:
+            if index == 2:
                 review = self._child(QCheckBox, "acknowledgeNativePrearmReview")
                 disabled[review.objectName()] = not review.isEnabled()
                 self._assert(not review.isEnabled(), "pre-arm review remains fail closed")

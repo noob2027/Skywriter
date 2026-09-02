@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import os
 import threading
 import time
@@ -57,18 +56,48 @@ class TransportKind(StrEnum):
     SIK = "sik"
 
 
+class TransportOpenFailureCode(StrEnum):
+    """Typed physical-open failures suitable for honest operator feedback."""
+
+    BUSY = "port_busy"
+    UNAVAILABLE = "port_unavailable"
+    FAILED = "port_open_failed"
+
+
+class TransportOpenError(RuntimeError):
+    """Opening an explicitly selected endpoint failed before link ownership began."""
+
+    def __init__(
+        self,
+        code: TransportOpenFailureCode,
+        detail: str,
+        *,
+        technical_detail: str | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.technical_detail = technical_detail
+
+
 @dataclass(frozen=True, slots=True)
 class TransportDescriptor:
     """Explicit endpoint classification; connector shape is not inferred."""
 
     endpoint: str
     kind: TransportKind
+    baudrate: int | None = None
 
     def __post_init__(self) -> None:
         if not self.endpoint.strip():
             raise ValueError("endpoint must not be empty")
         if not isinstance(self.kind, TransportKind):
             raise TypeError("kind must be a TransportKind")
+        if self.baudrate is not None:
+            if isinstance(self.baudrate, bool) or not isinstance(self.baudrate, int):
+                raise TypeError("baudrate must be an integer or None")
+            if self.baudrate <= 0:
+                raise ValueError("baudrate must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -895,24 +924,89 @@ def open_pymavlink_link(
         _vehicle_io_attempts += 1
     if os.environ.get(PACKAGED_SMOKE_TEST_ENVIRONMENT) == "1":
         raise RuntimeError("vehicle I/O is disabled during the packaged launch smoke test")
-    installed = importlib.metadata.version("pymavlink")
-    if installed != PINNED_PYMAVLINK_VERSION:
-        raise RuntimeError(f"pymavlink {PINNED_PYMAVLINK_VERSION} is required; found {installed}")
     configured = os.environ.get("MAVLINK20")
     if configured not in (None, "1"):
         raise RuntimeError("MAVLINK20 must be unset or '1'")
     os.environ["MAVLINK20"] = "1"
+    import pymavlink
+
+    installed = str(getattr(pymavlink, "__version__", "unknown"))
+    if installed != PINNED_PYMAVLINK_VERSION:
+        raise RuntimeError(f"pymavlink {PINNED_PYMAVLINK_VERSION} is required; found {installed}")
     from pymavlink import mavutil
 
     mavutil.set_dialect(PINNED_DIALECT)
     if str(mavutil.mavlink.WIRE_PROTOCOL_VERSION) != MAVLINK2_WIRE_PROTOCOL:
         raise RuntimeError("pymavlink did not activate the required MAVLink2 dialect")
-    connection = mavutil.mavlink_connection(
-        descriptor.endpoint,
-        source_system=local_address.system_id,
-        source_component=local_address.component_id,
-        dialect=PINNED_DIALECT,
-    )
+    connection_options: dict[str, object] = {
+        "source_system": local_address.system_id,
+        "source_component": local_address.component_id,
+        "dialect": PINNED_DIALECT,
+    }
+    if descriptor.baudrate is not None:
+        connection_options["baud"] = descriptor.baudrate
+    try:
+        connection = mavutil.mavlink_connection(descriptor.endpoint, **connection_options)
+    except Exception as error:
+        raise _transport_open_error(error) from error
     with _VEHICLE_IO_AUDIT_LOCK:
         _vehicle_io_successes += 1
     return PymavlinkMissionLink(connection, descriptor, local_address=local_address)
+
+
+def open_mission_link(
+    descriptor: TransportDescriptor,
+    *,
+    local_address: MavlinkAddress = DEFAULT_GCS_ADDRESS,
+) -> PymavlinkMissionLink:
+    """Production-named alias retaining the sole pinned physical-open boundary."""
+
+    return open_pymavlink_link(descriptor, local_address=local_address)
+
+
+def _transport_open_error(error: Exception) -> TransportOpenError:
+    technical_detail = str(error).strip() or type(error).__name__
+    normalized = technical_detail.casefold()
+    winerror = getattr(error, "winerror", None)
+    if (
+        isinstance(error, PermissionError)
+        or winerror in {5, 32}
+        or any(
+            fragment in normalized
+            for fragment in (
+                "access is denied",
+                "permission denied",
+                "resource busy",
+                "device or resource busy",
+                "could not exclusively lock",
+            )
+        )
+    ):
+        return TransportOpenError(
+            TransportOpenFailureCode.BUSY,
+            "The selected serial port is busy. Close Mission Planner or any other app using "
+            "that port, then try again.",
+            technical_detail=technical_detail,
+        )
+    if winerror in {2, 3, 1167} or any(
+        fragment in normalized
+        for fragment in (
+            "cannot find the file",
+            "file not found",
+            "no such file",
+            "does not exist",
+            "device not connected",
+            "device is not connected",
+        )
+    ):
+        return TransportOpenError(
+            TransportOpenFailureCode.UNAVAILABLE,
+            "The selected serial port is no longer available. Refresh the port list, check "
+            "the cable or radio, and select the current port.",
+            technical_detail=technical_detail,
+        )
+    return TransportOpenError(
+        TransportOpenFailureCode.FAILED,
+        f"The selected serial port could not be opened: {technical_detail}",
+        technical_detail=technical_detail,
+    )

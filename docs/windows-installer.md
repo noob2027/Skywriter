@@ -2,10 +2,11 @@
 
 ## What this proves
 
-Tasks 106 through 109 package the accepted SKYWriter Python, PySide6/Qt WebEngine, pymavlink, map
-assets, Python runtime, Qt plugins/resources, and dependency notices as a PyInstaller
-`onedir` payload. Inno Setup wraps that payload in one per-user Setup executable. Version
-0.1.3 is the Task 109 installed-control and Confirm-point repair.
+Tasks 106 through 110 package the accepted SKYWriter Python, PySide6/Qt WebEngine,
+pymavlink, pyserial, map assets, Python runtime, Qt plugins/resources, and dependency notices
+as a PyInstaller `onedir` payload. Inno Setup wraps that payload in one per-user Setup
+executable. Version 0.1.4 adds explicit installed serial selection and the production
+Connected mission/telemetry composition.
 
 Successful installation and launch prove desktop deployment mechanics only. They do not
 prove vehicle compatibility, bench readiness, arming, motor, mission-execution, or flight
@@ -18,7 +19,7 @@ aircraft-specific setting is embedded in startup behavior.
 
 The expected files are:
 
-- `SKYWriter-Prototype-Setup-0.1.3.exe`
+- `SKYWriter-Prototype-Setup-0.1.4.exe`
 - `SHA256SUMS.txt`
 - `build-metadata.json`
 
@@ -26,7 +27,7 @@ Before installing, compare the Setup file's SHA-256 value with `SHA256SUMS.txt`.
 PowerShell:
 
 ```powershell
-Get-FileHash .\SKYWriter-Prototype-Setup-0.1.3.exe -Algorithm SHA256
+Get-FileHash .\SKYWriter-Prototype-Setup-0.1.4.exe -Algorithm SHA256
 ```
 
 Double-click Setup and follow the prompts. It installs for the current Windows user under
@@ -41,7 +42,7 @@ installation directory and are not deleted.
 
 ## Reproducible local build
 
-Use 64-bit Windows and exact CPython 3.12.10. From a clean checkout:
+Use 64-bit Windows and exact CPython 3.12.13. From a clean checkout:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -52,11 +53,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The entry point creates an isolated short-path virtual environment, installs the existing
 application lock plus `packaging/requirements-build.lock`, collects declared runtime
-license files, generates the provisional icon, builds the `onedir` payload, acquires
+license files and the exact-version pyserial fallback described below, generates the
+provisional icon, builds the `onedir` payload, acquires
 Inno Setup 6.7.3 from its official release, verifies the pinned download SHA-256, compiles
 the installer, and runs a silent install/launch/uninstall smoke test. `-BuildRoot` may set
 another dedicated short path whose final directory name contains `skywriter` or `sw106`
-through `sw109`.
+through `sw110`.
 
 The packaged launch smoke starts from an arbitrary working directory, blocks the MAVLink
 open boundary, and uses an interceptor-gated loopback tile fixture. It waits up to 15
@@ -75,6 +77,18 @@ resize behavior, and all offline tab gates. The offline grid and local fixtures 
 the MAVLink open boundary is hard-blocked and attempted and successful opens must both be
 zero. Cleanup and uninstall run even when acceptance fails.
 
+Task 110 extends the same installed run with a deterministic, hardware-blocked serial
+inventory. It clicks **Refresh ports**, requires the human `COM42` fixture description,
+proves there is no automatic selection, explicitly selects the port and SiK link kind,
+checks the USB 115200 and SiK 57600 defaults, and never clicks Open. A separate bounded
+packaged import smoke verifies that the Windows `serial.tools.list_ports_windows` runtime is
+present. The MAVLink open audit must still report zero attempts and zero successes.
+
+When the exact build uses the bundled workspace Python, the surrounding tool runtime also
+places Poppler on `PATH`. The PyInstaller spec rejects Poppler's private unversioned ICU
+DLLs so they cannot shadow Windows' system ICU and break QtCore. The filter is limited to
+those Poppler-sourced binaries; it does not alter Qt or application code.
+
 On Windows, SKYWriter selects Qt WebEngine's documented Chromium software-rendering path
 with `--disable-gpu` before application construction. This is the narrow configuration that
 visibly repaired the reproduced 0.1.1 black child surface; Qt software OpenGL and Qt Quick
@@ -84,12 +98,17 @@ application's local data directory and included in packaged smoke evidence.
 
 Pinned build inputs:
 
-- CPython 3.12.10 x64
+- CPython 3.12.13 x64
+- pyserial 3.5 (direct exact runtime pin for Windows enumeration)
 - PyInstaller 6.22.2
 - pyinstaller-hooks-contrib 2026.7
 - Inno Setup 6.7.3, installer SHA-256
   `9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732`
 - application/runtime versions in `requirements.lock`
+
+The pyserial 3.5 wheel omits both `License-File` metadata and a license file. Packaging
+therefore includes the repository-pinned, verbatim upstream v3.5 BSD notice and a source
+provenance record. The collector rejects that fallback for any other pyserial version.
 
 Generated installers, payloads, certificates, and private keys are ignored and must not
 be committed.
@@ -111,6 +130,11 @@ Task 109 supersedes that installer with 0.1.3. Its exact size and SHA-256 are re
 the PR task report and generated `build-metadata.json`; it remains unsigned. Installed
 acceptance is a human-path usability and packaging gate, not evidence that a
 hardware-dependent command works.
+
+Task 110 supersedes Task 109 with 0.1.4. Its exact size, SHA-256, installed serial-selection
+evidence, map pixels, shortcut launch, and uninstall result are recorded in the Task 110
+report and generated artifacts. Hardware-blocked packaging evidence is not a real-port,
+vehicle, bench, or flight claim.
 
 ## Optional signing seam
 

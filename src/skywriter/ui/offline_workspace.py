@@ -115,6 +115,8 @@ class MissionSettingsDialog(QDialog):
 class OfflineMissionWorkspace(QWidget):
     """Wire the real editor, JSON repository, and compiler into one offline flow."""
 
+    snapshot_changed = Signal(object)
+
     def __init__(
         self,
         service: OfflineMissionService | None = None,
@@ -333,6 +335,7 @@ class OfflineMissionWorkspace(QWidget):
         if snapshot.is_dirty:
             path_text += "  •  unsaved changes"
         self._path.setText(path_text)
+        self.snapshot_changed.emit(snapshot)
 
     def _open_settings_editor(self) -> None:
         mission = self._service.snapshot.mission

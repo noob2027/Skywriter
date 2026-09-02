@@ -39,6 +39,12 @@ class ConnectedVerificationState(StrEnum):
 
 
 class ConnectedFailureCode(StrEnum):
+    SERIAL_ENUMERATION = "serial_enumeration"
+    PORT_BUSY = "port_busy"
+    PORT_UNAVAILABLE = "port_unavailable"
+    PORT_OPEN_FAILED = "port_open_failed"
+    NO_HEARTBEAT = "no_heartbeat"
+    OPERATION_BUSY = "operation_busy"
     CANCELLED = "cancelled"
     DISCONNECTED = "disconnected"
     WRONG_IDENTITY = "wrong_identity"
@@ -398,6 +404,25 @@ class ConnectedMissionService:
             onboard = port.download_mission(target, cancellation=cancellation)
         except ConnectedPortFailure as error:
             return self._record_port_failure(error)
+        expected = self._snapshot.expected_package
+        if expected is not None:
+            comparison = verify_native_readback(expected, onboard.items)
+            if not comparison.verified:
+                mismatches = comparison.home.mismatches + comparison.mission.mismatches
+                self._snapshot = replace(
+                    self._snapshot,
+                    revision=self._snapshot.revision + 1,
+                    onboard=onboard,
+                    replacement_confirmed=False,
+                    reconnect_comparison=comparison,
+                    verification_state=ConnectedVerificationState.MISMATCH,
+                    failure=ConnectedFailure(
+                        ConnectedFailureCode.READBACK_MISMATCH,
+                        "USB onboard inspection did not match the current verified native mission",
+                        mismatches=mismatches,
+                    ),
+                )
+                return self._snapshot
         self._snapshot = replace(
             self._snapshot,
             revision=self._snapshot.revision + 1,
@@ -546,6 +571,57 @@ class ConnectedMissionService:
             failure=None,
         )
         return self._snapshot
+
+    def connection_failed(
+        self,
+        code: ConnectedFailureCode,
+        detail: str,
+        *,
+        source_code: str | None = None,
+    ) -> ConnectedMissionSnapshot:
+        """Close application link state and retain a typed operator-visible failure."""
+
+        if code not in {
+            ConnectedFailureCode.SERIAL_ENUMERATION,
+            ConnectedFailureCode.PORT_BUSY,
+            ConnectedFailureCode.PORT_UNAVAILABLE,
+            ConnectedFailureCode.PORT_OPEN_FAILED,
+            ConnectedFailureCode.NO_HEARTBEAT,
+            ConnectedFailureCode.CANCELLED,
+            ConnectedFailureCode.DISCONNECTED,
+        }:
+            raise ValueError("connection_failed requires a connection failure code")
+        telemetry = self._snapshot.telemetry
+        if telemetry is not None:
+            telemetry = replace(telemetry, link_connected=False)
+        verification = (
+            ConnectedVerificationState.REVERIFY_REQUIRED
+            if self._snapshot.expected_package is not None
+            else ConnectedVerificationState.UNVERIFIED
+        )
+        self._snapshot = replace(
+            self._snapshot,
+            revision=self._snapshot.revision + 1,
+            candidates=(),
+            selected_target=None,
+            link_kind=None,
+            link_connected=False,
+            onboard=None,
+            replacement_confirmed=False,
+            telemetry=telemetry,
+            reconnect_comparison=None,
+            verification_state=verification,
+            failure=ConnectedFailure(code, detail, source_code),
+        )
+        return self._snapshot
+
+    def operation_busy(self) -> ConnectedMissionSnapshot:
+        """Report a rejected overlapping operation without starting another owner."""
+
+        return self._record_failure(
+            ConnectedFailureCode.OPERATION_BUSY,
+            "Another connected operation is still active; cancel it or wait for it to finish.",
+        )
 
     def reverify_over_sik(
         self,
@@ -708,6 +784,26 @@ class ConnectedMissionService:
         verification = self._snapshot.verification_state
         if code is ConnectedFailureCode.READBACK_MISMATCH:
             verification = ConnectedVerificationState.MISMATCH
+        elif code in {
+            ConnectedFailureCode.CANCELLED,
+            ConnectedFailureCode.DISCONNECTED,
+            ConnectedFailureCode.WRONG_IDENTITY,
+            ConnectedFailureCode.STALE_IDENTITY,
+            ConnectedFailureCode.HOME_UNRESOLVED,
+            ConnectedFailureCode.WRONG_LINK,
+            ConnectedFailureCode.ARMED,
+            ConnectedFailureCode.PROTOCOL,
+            ConnectedFailureCode.TELEMETRY_UNAVAILABLE,
+            ConnectedFailureCode.PORT_BUSY,
+            ConnectedFailureCode.PORT_UNAVAILABLE,
+            ConnectedFailureCode.PORT_OPEN_FAILED,
+            ConnectedFailureCode.NO_HEARTBEAT,
+        }:
+            verification = (
+                ConnectedVerificationState.REVERIFY_REQUIRED
+                if self._snapshot.expected_package is not None
+                else ConnectedVerificationState.UNVERIFIED
+            )
         self._snapshot = replace(
             self._snapshot,
             revision=self._snapshot.revision + 1,
