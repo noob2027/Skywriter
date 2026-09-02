@@ -24,6 +24,7 @@ INSTALLER = REPOSITORY_ROOT / "packaging" / "windows" / "installer.iss"
 SPEC = REPOSITORY_ROOT / "packaging" / "windows" / "skywriter.spec"
 VERSION_INFO = REPOSITORY_ROOT / "packaging" / "windows" / "version_info.txt"
 BUILD_SCRIPT = REPOSITORY_ROOT / "packaging" / "windows" / "build-installer.ps1"
+WINDOWS_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "windows-installer.yml"
 LICENSE_COLLECTOR = REPOSITORY_ROOT / "tools" / "packaging" / "collect_licenses.py"
 ICON = REPOSITORY_ROOT / "packaging" / "assets" / "skywriter-provisional.ico"
 
@@ -46,6 +47,7 @@ def test_packaging_metadata_matches_the_application_version() -> None:
     installer = INSTALLER.read_text(encoding="utf-8")
     version_info = VERSION_INFO.read_text(encoding="utf-8")
     build = BUILD_SCRIPT.read_text(encoding="utf-8")
+    workflow = WINDOWS_WORKFLOW.read_text(encoding="utf-8")
 
     version_tuple = tuple(int(part) for part in __version__.split(".")) + (0,)
     version_tuple_text = ",".join(str(part) for part in version_tuple)
@@ -57,6 +59,11 @@ def test_packaging_metadata_matches_the_application_version() -> None:
     assert "Copyright" not in installer
     assert '$requiredPython = "3.12.13"' in build
     assert '$innoVersion = "6.7.3"' in build
+    assert (
+        f"skywriter-prototype-windows-${{{{ steps.metadata.outputs.signing }}}}-{__version__}"
+        in workflow
+    )
+    assert f"SKYWriter-Prototype-Setup-{__version__}.exe" in workflow
 
 
 def test_payload_includes_map_assets_notices_mavlink_and_windows_serial_enumerator() -> None:
@@ -279,6 +286,10 @@ def test_installed_ui_acceptance_uses_shortcut_safe_paths_and_hardware_guard(
     assert "vehicle_io.attempts -ne 0" in installer_smoke
     assert "serial_selection.enumerated_count -ne 1" in installer_smoke
     assert "serial_selection.vehicle_open_clicked" in installer_smoke
+    assert "preflight_composition.controller_bound" in installer_smoke
+    assert "preflight_composition.prearm_or_arm_clicked" in installer_smoke
+    assert "flight_boundary.global_unavailable_gate_visible" in installer_smoke
+    assert "flight_boundary.flight_command_clicked" in installer_smoke
     assert "installed-ui-acceptance.json" in installer_smoke
     install_start = installer_smoke.index("Start-Process -FilePath $installer")
     outer_try = installer_smoke.rfind("try {", 0, install_start)

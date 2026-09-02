@@ -85,6 +85,22 @@ Meaningful reviewed states are retained as screenshots:
 - [timeout](screenshots/task-100/07-timeout.png)
 - [wrong acknowledgment](screenshots/task-100/08-wrong-ack.png)
 
+## Installed composition
+
+Task 111 supplies the previously deferred caller-owned composition. The installed
+Preflight controller consumes only the widget's typed intents and delegates blocking work
+to the existing Connected controller's single operation slot. One explicitly opened
+installed session owns the mission, native-prearm, and normal-Arm typed facets over one
+physical link; there is no second receiver or concurrent serial transaction.
+
+The controller invokes the unchanged `PrearmReadinessService` and
+`NativePrearmGateway`. Without a current selected SiK session, the application service
+closes the gate before its defensive no-I/O gateway can be reached. Connected busy state,
+mission revision changes, reinspection/readback differences, identity changes,
+disconnection, stale telemetry, and armed telemetry immediately remove reviewed
+readiness. The installed composition adds no new pre-arm semantics and no generic command
+surface. Flight remains unbound.
+
 ## Stock-SITL evidence
 
 The existing genuine connected mixed-mission test now exercises the production

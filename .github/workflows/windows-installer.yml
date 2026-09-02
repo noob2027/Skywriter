@@ -55,7 +55,7 @@ jobs:
           Set-ExecutionPolicy -Scope Process Bypass
           .\packaging\windows\build-installer.ps1 `
             -PythonPath (uv python find 3.12.13) `
-            -BuildRoot (Join-Path $env:RUNNER_TEMP "skywriter-task110-build") `
+            -BuildRoot (Join-Path $env:RUNNER_TEMP "skywriter-task111-build") `
             -OutputDirectory (Join-Path $env:RUNNER_TEMP "skywriter-artifacts")
       - name: Select artifact identity
         id: metadata
@@ -67,9 +67,9 @@ jobs:
       - name: Upload installer and SHA-256 manifest
         uses: actions/upload-artifact@v4
         with:
-          name: skywriter-prototype-windows-${{ steps.metadata.outputs.signing }}-0.1.4
+          name: skywriter-prototype-windows-${{ steps.metadata.outputs.signing }}-0.1.5
           path: |
-            ${{ runner.temp }}/skywriter-artifacts/SKYWriter-Prototype-Setup-0.1.4.exe
+            ${{ runner.temp }}/skywriter-artifacts/SKYWriter-Prototype-Setup-0.1.5.exe
             ${{ runner.temp }}/skywriter-artifacts/SHA256SUMS.txt
             ${{ runner.temp }}/skywriter-artifacts/build-metadata.json
             ${{ runner.temp }}/skywriter-artifacts/packaged-map-smoke.json

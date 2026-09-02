@@ -8,6 +8,7 @@ import pytest
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QCheckBox, QComboBox, QLabel, QPushButton
 
+from skywriter.application.arm import NormalArmState
 from skywriter.application.connected import (
     CancellationView,
     ConnectedFailureCode,
@@ -17,9 +18,11 @@ from skywriter.application.connected import (
     MissionTransferEvidence,
 )
 from skywriter.application.mission_service import OfflineMissionSnapshot
+from skywriter.application.prearm import MAV_SYS_STATUS_PREARM_CHECK, PrearmRequestState
 from skywriter.application.telemetry import (
     HeartbeatTelemetry,
     HomeTelemetry,
+    SensorStatusTelemetry,
     TelemetryLinkKind,
     TelemetryPoint,
     TelemetrySnapshot,
@@ -38,6 +41,9 @@ from skywriter.domain.compiled import (
     MissionType,
 )
 from skywriter.infrastructure.mavlink.connection import (
+    MAV_CMD_COMPONENT_ARM_DISARM,
+    MAV_CMD_RUN_PREARM_CHECKS,
+    MAV_MODE_FLAG_SAFETY_ARMED,
     IncomingMessage,
     MavlinkAddress,
     MissionLink,
@@ -50,6 +56,8 @@ from skywriter.infrastructure.serial_ports import SerialPortInfo
 from skywriter.main import create_application
 from skywriter.ui.connected import ConnectedMissionWidget
 from skywriter.ui.connected_controller import ConnectedMissionController
+from skywriter.ui.preflight import PreflightTelemetryWidget
+from skywriter.ui.preflight_controller import PreflightController
 
 
 class FakeClock:
@@ -74,10 +82,16 @@ class RecordingEnumerator:
 class FakeLink:
     local_address = MavlinkAddress(255, 190)
 
-    def __init__(self, descriptor: TransportDescriptor) -> None:
+    def __init__(self, descriptor: TransportDescriptor, clock: FakeClock) -> None:
         self.descriptor = descriptor
+        self.clock = clock
         self.connected = True
         self.close_count = 0
+        self.incoming: list[IncomingMessage] = []
+        self.prearm_sends: list[tuple[MavlinkAddress, int]] = []
+        self.arm_sends: list[tuple[MavlinkAddress, int]] = []
+        self.command_thread_ids: list[int] = []
+        self.armed_confirmed = False
 
     def is_connected(self) -> bool:
         return self.connected
@@ -88,8 +102,10 @@ class FakeLink:
             self.close_count += 1
 
     def receive(self, timeout_s: float) -> IncomingMessage | None:
-        del timeout_s
-        raise AssertionError("fake connected port owns discovery")
+        if self.incoming:
+            return self.incoming.pop(0)
+        self.clock.value += timeout_s
+        return None
 
     def send_mission_count(self, target: MavlinkAddress, *, count: int, mission_type: int) -> None:
         del target, count, mission_type
@@ -118,6 +134,25 @@ class FakeLink:
     def send_mission_ack(self, target: MavlinkAddress, *, result: int, mission_type: int) -> None:
         del target, result, mission_type
         raise AssertionError("fake connected port owns mission transfer")
+
+    def send_prearm_checks(self, target: MavlinkAddress) -> None:
+        self.command_thread_ids.append(threading.get_ident())
+        self.prearm_sends.append((target, MAV_CMD_RUN_PREARM_CHECKS))
+
+    def send_normal_arm(self, target: MavlinkAddress) -> None:
+        self.command_thread_ids.append(threading.get_ident())
+        self.arm_sends.append((target, MAV_CMD_COMPONENT_ARM_DISARM))
+        self.armed_confirmed = True
+
+
+class FakeSession:
+    def __init__(self, link: FakeLink) -> None:
+        self.mission_link = link
+        self.prearm_link = link
+        self.normal_arm_link = link
+
+    def close(self) -> None:
+        self.mission_link.close()
 
 
 class FakeConnectedPort:
@@ -202,28 +237,43 @@ class FakeConnectedPort:
         assert not cancellation.is_cancelled()
         observed_at_s = self._clock.now()
         return TelemetrySnapshot(
-            target.vehicle.value,
-            target.system_id,
-            target.component_id,
-            target.link_kind,
-            True,
-            TimedSignal(
-                HeartbeatTelemetry(False, 0, "Stabilize", 3, 2, 3),
+            vehicle_identity=target.vehicle.value,
+            target_system=target.system_id,
+            target_component=target.component_id,
+            link_kind=target.link_kind,
+            link_connected=True,
+            heartbeat=TimedSignal(
+                HeartbeatTelemetry(
+                    self._link.armed_confirmed,
+                    MAV_MODE_FLAG_SAFETY_ARMED if self._link.armed_confirmed else 0,
+                    "Stabilize",
+                    3,
+                    2,
+                    3,
+                ),
                 observed_at_s,
                 3.0,
             ),
-            TimedSignal.unavailable(5.0),
-            TimedSignal.unavailable(5.0),
-            TimedSignal(
+            position=TimedSignal.unavailable(5.0),
+            battery=TimedSignal.unavailable(5.0),
+            home=TimedSignal(
                 HomeTelemetry(TelemetryPoint(-35.363261, 149.165230), 584.0),
                 observed_at_s,
                 60.0,
             ),
-            TimedSignal.unavailable(5.0),
-            TimedSignal.unavailable(5.0),
-            TimedSignal.unavailable(5.0),
-            TimedSignal.unavailable(5.0),
-            TimedSignal.unavailable(5.0),
+            mission=TimedSignal.unavailable(5.0),
+            gps=TimedSignal.unavailable(5.0),
+            sensors=TimedSignal(
+                SensorStatusTelemetry(
+                    MAV_SYS_STATUS_PREARM_CHECK,
+                    MAV_SYS_STATUS_PREARM_CHECK,
+                    MAV_SYS_STATUS_PREARM_CHECK,
+                ),
+                observed_at_s,
+                5.0,
+            ),
+            ekf=TimedSignal.unavailable(5.0),
+            extended_state=TimedSignal.unavailable(5.0),
         )
 
     def _target(self) -> ConnectedTarget:
@@ -258,14 +308,14 @@ class ControllerHarness:
         self.ports: list[FakeConnectedPort] = []
         self.store: dict[str, NativeMissionPackage] = {}
 
-    def open_link(self, descriptor: TransportDescriptor) -> FakeLink:
+    def open_link(self, descriptor: TransportDescriptor) -> FakeSession:
         self.open_thread_ids.append(threading.get_ident())
         self.descriptors.append(descriptor)
         if self.open_error is not None:
             raise self.open_error
-        link = FakeLink(descriptor)
+        link = FakeLink(descriptor, self.clock)
         self.links.append(link)
-        return link
+        return FakeSession(link)
 
     def make_port(self, link: MissionLink, clock: object) -> FakeConnectedPort:
         assert isinstance(link, FakeLink)
@@ -341,6 +391,66 @@ def prepare_serial_selection(widget: ConnectedMissionWidget) -> None:
 
 def verification_state(controller: ConnectedMissionController) -> ConnectedVerificationState:
     return controller.service.snapshot.verification_state
+
+
+def establish_verified_sik(
+    widget: ConnectedMissionWidget,
+    controller: ConnectedMissionController,
+) -> None:
+    controller.sync_mission(
+        OfflineMissionSnapshot(
+            revision=1,
+            compiled_preview=compiled(),
+            compiled_revision=1,
+        )
+    )
+    prepare_serial_selection(widget)
+    discover = widget.findChild(QPushButton, "discoverSelectedLinkButton")
+    targets = widget.findChild(QComboBox, "connectedTargetSelection")
+    assert discover is not None and targets is not None
+    discover.click()
+    wait_until(lambda: bool(controller.service.snapshot.candidates) and not controller.busy)
+    targets.activated.emit(1)
+    wait_until(
+        lambda: controller.service.snapshot.selected_target is not None and not controller.busy
+    )
+    inspect = widget.findChild(QPushButton, "inspectOnboardMissionButton")
+    replacement = widget.findChild(QCheckBox, "confirmMissionReplacement")
+    upload = widget.findChild(QPushButton, "uploadAndVerifyButton")
+    assert inspect is not None and replacement is not None and upload is not None
+    inspect.click()
+    wait_until(lambda: controller.service.snapshot.onboard is not None and not controller.busy)
+    replacement.setChecked(True)
+    upload.click()
+    wait_until(lambda: verification_state(controller) is ConnectedVerificationState.USB_VERIFIED)
+    disconnect = widget.findChild(QPushButton, "disconnectConnectedButton")
+    assert disconnect is not None
+    disconnect.click()
+    wait_until(lambda: not controller.service.snapshot.link_connected and not controller.busy)
+    link_kind = widget.findChild(QComboBox, "serialLinkKindSelection")
+    assert link_kind is not None
+    link_kind.setCurrentIndex(1)
+    discover.click()
+    wait_until(
+        lambda: (
+            controller.service.snapshot.link_kind is TelemetryLinkKind.SIK
+            and bool(controller.service.snapshot.candidates)
+            and not controller.busy
+        )
+    )
+    targets.activated.emit(1)
+    wait_until(
+        lambda: controller.service.snapshot.selected_target is not None and not controller.busy
+    )
+    reverify = widget.findChild(QPushButton, "reverifyConnectedMissionButton")
+    assert reverify is not None
+    reverify.click()
+    wait_until(
+        lambda: (
+            verification_state(controller) is ConnectedVerificationState.SIK_VERIFIED
+            and not controller.busy
+        )
+    )
 
 
 def test_production_controller_composes_full_usb_to_sik_mission_flow_off_thread() -> None:
@@ -441,6 +551,133 @@ def test_production_controller_composes_full_usb_to_sik_mission_flow_off_thread(
     )
     controller.shutdown()
     widget.close()
+
+
+def test_preflight_and_normal_arm_share_the_verified_sik_session_off_thread() -> None:
+    create_application(["skywriter-preflight-controller-flow"])
+    connected_widget = ConnectedMissionWidget()
+    preflight_widget = PreflightTelemetryWidget()
+    clock = FakeClock()
+    harness = ControllerHarness(clock)
+    controller = ConnectedMissionController(
+        connected_widget,
+        serial_ports=RecordingEnumerator(),
+        link_factory=harness.open_link,
+        port_factory=harness.make_port,
+        clock=clock,
+    )
+    preflight = PreflightController(preflight_widget, controller)
+    ui_thread = threading.get_ident()
+
+    establish_verified_sik(connected_widget, controller)
+    assert len(harness.links) == 2
+    sik_link = harness.links[1]
+    target = MavlinkAddress(1, 1)
+    sik_link.incoming.append(
+        IncomingMessage(
+            "COMMAND_ACK",
+            target,
+            {
+                "command": MAV_CMD_RUN_PREARM_CHECKS,
+                "result": 0,
+                "target_system": 255,
+                "target_component": 190,
+            },
+        )
+    )
+    request = preflight_widget.findChild(QPushButton, "requestNativePrearmButton")
+    review = preflight_widget.findChild(QCheckBox, "acknowledgeNativePrearmReview")
+    arm = preflight_widget.findChild(QPushButton, "normalArmButton")
+    assert request is not None and review is not None and arm is not None
+    assert request.isEnabled() and not arm.isEnabled()
+    request.click()
+    assert not review.isEnabled() and not arm.isEnabled()
+    wait_until(
+        lambda: (
+            preflight.readiness_service.snapshot.request_state is PrearmRequestState.ACCEPTED
+            and not controller.busy
+        )
+    )
+    assert sik_link.prearm_sends == [(target, MAV_CMD_RUN_PREARM_CHECKS)]
+    assert review.isEnabled()
+    review.setChecked(True)
+    wait_until(lambda: preflight.arm_service.snapshot.request_available)
+    assert arm.isEnabled()
+
+    sik_link.incoming.extend(
+        (
+            IncomingMessage(
+                "COMMAND_ACK",
+                target,
+                {
+                    "command": MAV_CMD_COMPONENT_ARM_DISARM,
+                    "result": 0,
+                    "target_system": 255,
+                    "target_component": 190,
+                },
+            ),
+            IncomingMessage(
+                "HEARTBEAT",
+                target,
+                {"base_mode": MAV_MODE_FLAG_SAFETY_ARMED},
+            ),
+        )
+    )
+    arm.click()
+    assert not request.isEnabled() and not review.isEnabled() and not arm.isEnabled()
+    wait_until(
+        lambda: preflight.arm_service.snapshot.state is NormalArmState.ARMED and not controller.busy
+    )
+
+    assert sik_link.arm_sends == [(target, MAV_CMD_COMPONENT_ARM_DISARM)]
+    assert all(thread_id != ui_thread for thread_id in sik_link.command_thread_ids)
+    selected = controller.service.snapshot.selected_target
+    assert selected is not None and selected.armed
+    assert preflight.readiness_service.snapshot.request_state is PrearmRequestState.BLOCKED_ARMED
+    assert preflight.readiness_service.snapshot.context is None
+    assert not request.isEnabled() and not review.isEnabled() and not arm.isEnabled()
+
+    request.click()
+    arm.click()
+    create_application().processEvents()
+    assert sik_link.prearm_sends == [(target, MAV_CMD_RUN_PREARM_CHECKS)]
+    assert sik_link.arm_sends == [(target, MAV_CMD_COMPONENT_ARM_DISARM)]
+
+    controller.shutdown()
+    preflight_widget.close()
+    connected_widget.close()
+
+
+def test_preflight_offline_request_fails_closed_without_opening_vehicle_io() -> None:
+    create_application(["skywriter-preflight-controller-offline"])
+    connected_widget = ConnectedMissionWidget()
+    preflight_widget = PreflightTelemetryWidget()
+    harness = ControllerHarness(FakeClock())
+    controller = ConnectedMissionController(
+        connected_widget,
+        serial_ports=RecordingEnumerator(),
+        link_factory=harness.open_link,
+        port_factory=harness.make_port,
+        clock=harness.clock,
+    )
+    preflight = PreflightController(preflight_widget, controller)
+    request = preflight_widget.findChild(QPushButton, "requestNativePrearmButton")
+    review = preflight_widget.findChild(QCheckBox, "acknowledgeNativePrearmReview")
+    arm = preflight_widget.findChild(QPushButton, "normalArmButton")
+    assert request is not None and review is not None and arm is not None
+
+    request.click()
+
+    assert preflight.readiness_service.snapshot.request_state is PrearmRequestState.LINK_LOST
+    assert not controller.busy
+    assert harness.descriptors == []
+    assert review.isEnabled()
+    review.setChecked(True)
+    assert not preflight.readiness_service.snapshot.application_gate_ready
+    assert not arm.isEnabled()
+    controller.shutdown()
+    preflight_widget.close()
+    connected_widget.close()
 
 
 def test_no_heartbeat_closes_link_and_reports_port_kind_baud_guidance() -> None:

@@ -171,6 +171,7 @@ The documents in this starter package are the implementation source of truth. Be
 - [`docs/architecture.md`](docs/architecture.md): domain model, state machines, interfaces, protocol boundaries, and test seams
 - [`docs/connected-integration.md`](docs/connected-integration.md): USB/SiK composition, invalidation, and stock-SITL evidence
 - [`docs/task-110-connected-production.md`](docs/task-110-connected-production.md): explicit serial selection, installed Connected mission/telemetry composition, packaging evidence, and supervised C1 boundary
+- [`docs/task-111-preflight-arm-production.md`](docs/task-111-preflight-arm-production.md): installed native Preflight and normal Arm composition, fail-closed invalidation, and packaging evidence
 - [`docs/native-prearm.md`](docs/native-prearm.md): exact native pre-arm request, review gate, and SITL evidence boundary
 - [`docs/normal-arm.md`](docs/normal-arm.md): gated normal Arm, exact ACK/telemetry proof, and stock-SITL evidence
 - [`docs/auto-start.md`](docs/auto-start.md): fixed native AUTO start, Running proof, and link-interruption evidence
@@ -221,7 +222,7 @@ If Qt cannot initialize a display in an automated session, set
 ## Windows prototype installer
 
 A Windows user without Python can install the prototype from
-`SKYWriter-Prototype-Setup-0.1.4.exe`. Setup installs per-user, creates a Start-menu entry,
+`SKYWriter-Prototype-Setup-0.1.5.exe`. Setup installs per-user, creates a Start-menu entry,
 offers a default desktop shortcut, and registers a standard uninstaller. The application
 still starts offline and disconnected; packaging is not vehicle, bench, motor, or flight
 validation.
@@ -235,26 +236,31 @@ providers. OpenStreetMap is a best-effort prototype provider, not a production S
 is no address search, satellite provider, offline tile download, or map-derived Home/Vehicle
 position.
 
-Version 0.1.4 retains Qt WebEngine's Chromium software-rendering path on Windows because the
+Version 0.1.5 retains Qt WebEngine's Chromium software-rendering path on Windows because the
 accepted 0.1.1 GPU-compositor path was reproduced painting the entire embedded map black.
 The installed smoke now inspects captured map pixels, controlled local tiles, and visible
 Leaflet controls; page/bridge readiness alone is no longer sufficient.
 
-The 0.1.4 installed acceptance also drives the real Builder through its installed Start-menu
+The 0.1.5 installed acceptance also drives the real Builder through its installed Start-menu
 shortcut at 1498×758 and 1366×768. Confirm-point validation is adjacent, focused, and
 scrolled into view; downstream rejection preserves entered values, while success updates
 the list, summary, route, and marker exactly once. Its hardware-blocked Connected pass then
 explicitly refreshes a deterministic serial inventory, proves that no port is auto-selected,
 shows the human port description, and verifies USB 115200 / SiK 57600 defaults without
 clicking Open; vehicle-I/O attempts remain zero. In a normal launch, Connected mission and
-receive-only telemetry operations are available only after explicit port/link/vehicle
-selection, while Preflight, Arm, AUTO, Pause/Resume, and Land Here Now remain disabled. See
-[`Task 110 connected production`](docs/task-110-connected-production.md).
+receive-only telemetry operations remain available only after explicit port/link/vehicle
+selection. Task 111 composes only the already accepted native Preflight request, explicit
+readiness review, and normal Arm services onto that same installed controller lifecycle.
+They stay fail-closed unless the current mission and selected SiK target satisfy their exact
+gates. Flight remains unbound: AUTO, Pause/Resume, Land Here Now, RTL, Disarm, force-arm,
+parameter writes, and generic commands are unavailable. The installed acceptance does not
+run a live Arm. See
+[`Task 111 Preflight/Arm production`](docs/task-111-preflight-arm-production.md).
 
-The verified Task 109 artifact remains recorded in its task report. Task 110 supersedes it
-with the unsigned 0.1.4 artifact recorded in
-[`docs/task-110-connected-production.md`](docs/task-110-connected-production.md), so
-SmartScreen/reputation warnings remain expected.
+The verified Task 109 and Task 110 artifacts remain recorded in their historical task
+reports. Task 111 supersedes them with the unsigned 0.1.5 artifact recorded in
+[`docs/task-111-preflight-arm-production.md`](docs/task-111-preflight-arm-production.md),
+so SmartScreen/reputation warnings remain expected.
 
 Builds are unsigned unless explicit signing secrets are configured and may trigger
 SmartScreen. Verify `SHA256SUMS.txt` before running Setup. Nontechnical install, launch,

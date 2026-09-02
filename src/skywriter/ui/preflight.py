@@ -60,6 +60,10 @@ class PreflightTelemetryWidget(QWidget):
         self._arm = NormalArmSnapshot()
         self._arm_worker: NormalArmWorkerHandoff | None = None
         self._interaction_unavailable_reason: str | None = None
+        self._busy = False
+        self._busy_detail = ""
+        self._rendered_telemetry: TelemetrySnapshot | None = None
+        self._rendered_now_s = 0.0
         self.setObjectName("preflightTelemetryView")
         root = QVBoxLayout(self)
         heading = QLabel("Preflight telemetry")
@@ -203,6 +207,24 @@ class PreflightTelemetryWidget(QWidget):
         self._interaction_gate.setVisible(True)
         self._apply_interaction_gate()
 
+    def set_busy(self, busy: bool, detail: str = "") -> None:
+        """Lock all Preflight actions while the shared installed session is owned."""
+
+        self._busy = busy
+        self._busy_detail = detail.strip()
+        if self._interaction_unavailable_reason is None:
+            self._interaction_gate.setText(
+                self._busy_detail or "Another installed vehicle operation owns the channel."
+            )
+            self._interaction_gate.setVisible(busy)
+        # Reapply each snapshot's own enablement first, then the transient lock.
+        self.render_composed_readiness(
+            self._readiness,
+            telemetry=self._rendered_telemetry,
+            now_s=self._rendered_now_s,
+        )
+        self.render_arm(self._arm)
+
     def _emit_prearm_request(self) -> None:
         # Disable synchronously so a double-click cannot queue a second worker transaction.
         self._request_button.setEnabled(False)
@@ -272,8 +294,25 @@ class PreflightTelemetryWidget(QWidget):
             self._messages.scrollToBottom()
 
     def render_readiness(self, readiness: PrearmReadinessSnapshot, *, now_s: float) -> None:
+        self.render_composed_readiness(
+            readiness,
+            telemetry=readiness.telemetry,
+            now_s=now_s,
+        )
+
+    def render_composed_readiness(
+        self,
+        readiness: PrearmReadinessSnapshot,
+        *,
+        telemetry: TelemetrySnapshot | None,
+        now_s: float,
+    ) -> None:
+        """Render readiness against the installed session's current telemetry."""
+
         self._readiness = readiness
-        self.render_snapshot(readiness.telemetry, now_s=now_s)
+        self._rendered_telemetry = telemetry
+        self._rendered_now_s = now_s
+        self.render_snapshot(telemetry, now_s=now_s)
         self._request_status.setText(_request_state_text(readiness.request_state))
         repeated = (
             " Repeated request ignored while the original request remained active."
@@ -299,14 +338,23 @@ class PreflightTelemetryWidget(QWidget):
         self._review_ack.blockSignals(False)
         self._apply_interaction_gate()
         if readiness.native_messages:
-            current = () if readiness.telemetry is None else readiness.telemetry.native_messages
+            current = () if telemetry is None else telemetry.native_messages
             combined = (*current, *readiness.native_messages)
             self._messages.render_messages((message.severity, message.text) for message in combined)
             self._messages.scrollToBottom()
 
     def _apply_interaction_gate(self) -> None:
         reason = self._interaction_unavailable_reason
+        if reason is None and self._busy:
+            reason = self._busy_detail or "Another installed vehicle operation owns the channel."
+        if reason is None and self._arm.state is NormalArmState.ARMED:
+            reason = (
+                "Armed telemetry was confirmed. Further Preflight and Arm requests remain "
+                "blocked for this connected session."
+            )
         if reason is None:
+            for control in (self._request_button, self._review_ack, self._arm_button):
+                control.setToolTip("")
             return
         for control in (self._request_button, self._review_ack, self._arm_button):
             control.setEnabled(False)

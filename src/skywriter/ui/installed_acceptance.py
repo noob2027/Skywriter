@@ -552,44 +552,94 @@ class _InstalledAcceptance:
         }
         self._capture("41-tab-connected-serial-selection")
 
-        command_tabs = (
-            (2, "preflightInteractionGate", ("requestNativePrearmButton", "normalArmButton")),
-            (
-                3,
-                "flightInteractionGate",
-                (
-                    "nativeAutoStartButton",
-                    "nativePauseButton",
-                    "nativeResumeButton",
-                    "landHereNowButton",
-                    "landHereNowConfirmButton",
-                    "landHereNowCancelButton",
-                ),
-            ),
+        tabs.setCurrentIndex(2)
+        QTest.qWait(50)
+        preflight_gate = self._child(QLabel, "preflightInteractionGate")
+        prearm_request = self._child(QPushButton, "requestNativePrearmButton")
+        prearm_review = self._child(QCheckBox, "acknowledgeNativePrearmReview")
+        normal_arm = self._child(QPushButton, "normalArmButton")
+        connected = self.window.connected_controller.service.snapshot
+        preflight_controller = self.window.preflight_controller
+        readiness = preflight_controller.readiness_service.snapshot
+        arm = preflight_controller.arm_service.snapshot
+        self._assert(
+            not preflight_gate.isVisible(),
+            "Preflight production composition has no global unavailable gate",
         )
-        for index, gate_name, control_names in command_tabs:
-            tabs.setCurrentIndex(index)
-            QTest.qWait(50)
-            gate = self._child(QLabel, gate_name)
-            self._assert(gate.isVisible(), f"tab {index} gate explanation is visible")
-            disabled: dict[str, bool] = {}
-            for name in control_names:
-                button = self._child(QPushButton, name)
-                disabled[name] = not button.isEnabled()
-                self._assert(not button.isEnabled(), f"{name} remains fail closed")
-            if index == 2:
-                review = self._child(QCheckBox, "acknowledgeNativePrearmReview")
-                disabled[review.objectName()] = not review.isEnabled()
-                self._assert(not review.isEnabled(), "pre-arm review remains fail closed")
-            navigation.append(
-                {
-                    "index": index,
-                    "label": tabs.tabText(index),
-                    "gate": gate.text(),
-                    "controls_disabled": disabled,
-                }
-            )
-            self._capture(f"4{index}-tab-{tabs.tabText(index).lower()}")
+        self._assert(not connected.link_connected, "no vehicle link was opened")
+        self._assert(connected.selected_target is None, "no vehicle target was selected")
+        self._assert(
+            not readiness.application_gate_ready,
+            "pre-arm readiness remains fail closed without a verified link",
+        )
+        self._assert(not prearm_review.isEnabled(), "pre-arm review requires native evidence")
+        self._assert(not arm.request_available, "normal Arm application gate remains closed")
+        self._assert(not normal_arm.isEnabled(), "normal Arm control remains disabled")
+        self.evidence["preflight_composition"] = {
+            "controller_bound": preflight_controller is not None,
+            "global_unavailable_gate_visible": preflight_gate.isVisible(),
+            "link_connected": connected.link_connected,
+            "selected_target_present": connected.selected_target is not None,
+            "readiness_state": readiness.request_state.value,
+            "readiness_application_gate_ready": readiness.application_gate_ready,
+            "native_request_enabled": prearm_request.isEnabled(),
+            "review_enabled": prearm_review.isEnabled(),
+            "normal_arm_state": arm.state.value,
+            "normal_arm_request_available": arm.request_available,
+            "normal_arm_enabled": normal_arm.isEnabled(),
+            "vehicle_open_clicked": False,
+            "prearm_or_arm_clicked": False,
+        }
+        navigation.append(
+            {
+                "index": 2,
+                "label": tabs.tabText(2),
+                "gate": "production controller bound; service-owned readiness gates",
+                "command_clicked": False,
+                "normal_arm_enabled": normal_arm.isEnabled(),
+            }
+        )
+        self._capture("42-tab-preflight")
+
+        tabs.setCurrentIndex(3)
+        QTest.qWait(50)
+        flight_gate = self._child(QLabel, "flightInteractionGate")
+        flight_control_names = (
+            "nativeAutoStartButton",
+            "nativePauseButton",
+            "nativeResumeButton",
+            "landHereNowButton",
+            "landHereNowConfirmButton",
+            "landHereNowCancelButton",
+        )
+        self._assert(flight_gate.isVisible(), "Flight global unavailable gate is visible")
+        self._assert("Task 111" in flight_gate.text(), "Flight gate names the Task 111 boundary")
+        self._assert(
+            not hasattr(self.window, "flight_controller"),
+            "installed shell exposes no Flight controller binding",
+        )
+        flight_controls_disabled: dict[str, bool] = {}
+        for name in flight_control_names:
+            button = self._child(QPushButton, name)
+            flight_controls_disabled[name] = not button.isEnabled()
+            self._assert(not button.isEnabled(), f"{name} remains fail closed")
+        self.evidence["flight_boundary"] = {
+            "controller_bound": hasattr(self.window, "flight_controller"),
+            "global_unavailable_gate_visible": flight_gate.isVisible(),
+            "gate": flight_gate.text(),
+            "controls_disabled": flight_controls_disabled,
+            "flight_command_clicked": False,
+        }
+        navigation.append(
+            {
+                "index": 3,
+                "label": tabs.tabText(3),
+                "gate": flight_gate.text(),
+                "controls_disabled": flight_controls_disabled,
+                "command_clicked": False,
+            }
+        )
+        self._capture("43-tab-flight")
         tabs.setCurrentIndex(0)
 
     def _exercise_optional_large_layout(self) -> None:
