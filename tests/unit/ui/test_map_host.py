@@ -299,7 +299,7 @@ def test_controlled_tiles_prove_loading_online_offline_and_retry_without_public_
         assert server.request_paths
         assert all(path.count("/") == 3 and path.endswith(".png") for path in server.request_paths)
         assert set(server.user_agents) == {
-            "SKYWriter/0.1.4 (+https://github.com/noob2027/Skywriter)"
+            "SKYWriter/0.1.5 (+https://github.com/noob2027/Skywriter)"
         }
         assert "OpenStreetMap contributors" in cast(
             str,

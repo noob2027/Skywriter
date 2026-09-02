@@ -8,13 +8,32 @@ from typing import Protocol, cast
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal, Slot
 
+from skywriter.application.arm import (
+    NormalArmCommandResult,
+    NormalArmService,
+    NormalArmSnapshot,
+    NormalArmState,
+)
 from skywriter.application.connected import (
+    CancellationView,
     ConnectedFailureCode,
     ConnectedMissionService,
     ConnectedMissionSnapshot,
+    ConnectedTarget,
     ConnectedVehiclePort,
 )
 from skywriter.application.mission_service import OfflineMissionSnapshot
+from skywriter.application.prearm import (
+    PrearmCommandResult,
+    PrearmReadinessService,
+    PrearmReadinessSnapshot,
+    PrearmRequestState,
+)
+from skywriter.application.telemetry import TelemetryLinkKind
+from skywriter.infrastructure.mavlink.arm import (
+    NativeNormalArmGateway,
+    NormalArmLink,
+)
 from skywriter.infrastructure.mavlink.connected import ConnectedMavlinkPort
 from skywriter.infrastructure.mavlink.connection import (
     CancellationToken,
@@ -25,8 +44,9 @@ from skywriter.infrastructure.mavlink.connection import (
     TransportKind,
     TransportOpenError,
     TransportOpenFailureCode,
-    open_mission_link,
+    open_installed_session,
 )
+from skywriter.infrastructure.mavlink.prearm import NativePrearmGateway, PrearmCommandLink
 from skywriter.infrastructure.serial_ports import (
     PySerialPortEnumerator,
     SerialEnumerationError,
@@ -51,11 +71,20 @@ DISCOVERY_TIMEOUT_S = 3.0
 TELEMETRY_TIMEOUT_S = 5.0
 
 
-class ClosableMissionLink(MissionLink, Protocol):
+class InstalledVehicleSession(Protocol):
+    @property
+    def mission_link(self) -> MissionLink: ...
+
+    @property
+    def prearm_link(self) -> PrearmCommandLink: ...
+
+    @property
+    def normal_arm_link(self) -> NormalArmLink: ...
+
     def close(self) -> None: ...
 
 
-LinkFactory = Callable[[TransportDescriptor], ClosableMissionLink]
+LinkFactory = Callable[[TransportDescriptor], InstalledVehicleSession]
 PortFactory = Callable[[MissionLink, Clock], ConnectedVehiclePort]
 
 
@@ -67,7 +96,7 @@ class _PortsResult:
 @dataclass(frozen=True, slots=True)
 class _OpenResult:
     snapshot: ConnectedMissionSnapshot
-    link: ClosableMissionLink | None = None
+    session: InstalledVehicleSession | None = None
     port: ConnectedVehiclePort | None = None
 
 
@@ -85,6 +114,17 @@ class _DisconnectedResult:
 @dataclass(frozen=True, slots=True)
 class _ClosedFailureResult:
     snapshot: ConnectedMissionSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _PrearmResult:
+    snapshot: PrearmReadinessSnapshot
+
+
+@dataclass(frozen=True, slots=True)
+class _ArmResult:
+    snapshot: NormalArmSnapshot
+    connected: ConnectedMissionSnapshot
 
 
 class _WorkerSignals(QObject):
@@ -113,6 +153,9 @@ class ConnectedMissionController(QObject):
     """Own exactly one link and one cancellable blocking operation at a time."""
 
     snapshot_ready = Signal(object)
+    busy_changed = Signal(bool, str)
+    prearm_snapshot_ready = Signal(object)
+    arm_snapshot_ready = Signal(object)
 
     def __init__(
         self,
@@ -129,17 +172,18 @@ class ConnectedMissionController(QObject):
         self._widget = widget
         self._service = service or ConnectedMissionService()
         self._serial_ports = serial_ports or PySerialPortEnumerator()
-        self._link_factory = link_factory or cast(LinkFactory, open_mission_link)
+        self._link_factory = link_factory or cast(LinkFactory, open_installed_session)
         self._port_factory = port_factory or _default_port_factory
         self._clock = clock or MonotonicClock()
         self._pool = pool or QThreadPool.globalInstance()
-        self._active_link: ClosableMissionLink | None = None
+        self._active_session: InstalledVehicleSession | None = None
         self._active_port: ConnectedVehiclePort | None = None
         self._active_token: CancellationToken | None = None
         self._active_worker: _ConnectedOperation | None = None
         self._busy = False
         self._disconnect_after_operation = False
         self._pending_mission: OfflineMissionSnapshot | None = None
+        self._armed_interlock = False
         self._shutting_down = False
         self._widget.intent_emitted.connect(self._handle_intent)
         self._render(self._service.snapshot)
@@ -152,6 +196,125 @@ class ConnectedMissionController(QObject):
     def busy(self) -> bool:
         return self._busy
 
+    @property
+    def armed_interlock(self) -> bool:
+        """Whether this open session has confirmed Armed and must accept no more actions."""
+
+        return self._armed_interlock
+
+    @property
+    def clock(self) -> Clock:
+        """Expose the shared monotonic time source for synchronous gate rendering."""
+
+        return self._clock
+
+    def request_native_prearm(self, readiness: PrearmReadinessService) -> None:
+        """Serialize exactly Task 100's request on the installed session."""
+
+        if not isinstance(readiness, PrearmReadinessService):
+            raise TypeError("readiness must be a PrearmReadinessService")
+        if self._reject_if_busy():
+            return
+        if self._armed_interlock:
+            self.prearm_snapshot_ready.emit(
+                readiness.synchronize_context(
+                    self._service.snapshot,
+                    now_s=self._clock.now(),
+                )
+            )
+            return
+        connected = self._service.snapshot
+        session = self._active_session
+        if session is None or connected.link_kind is not TelemetryLinkKind.SIK:
+            token = CancellationToken()
+            snapshot = readiness.request_prearm_checks(
+                _UnavailablePrearmGateway(),
+                connected,
+                now_s=self._clock.now(),
+                cancellation=token,
+            )
+            self.prearm_snapshot_ready.emit(snapshot)
+            return
+        token = CancellationToken()
+        gateway = NativePrearmGateway(session.prearm_link, clock=self._clock)
+        self._active_token = token
+        self._submit(
+            lambda: _PrearmResult(
+                readiness.request_prearm_checks(
+                    gateway,
+                    connected,
+                    now_s=self._clock.now(),
+                    cancellation=token,
+                )
+            ),
+            "Requesting native pre-arm checks and awaiting the exact acknowledgment…",
+        )
+
+    def request_normal_arm(
+        self,
+        arm: NormalArmService,
+        readiness: PrearmReadinessService,
+    ) -> None:
+        """Serialize exactly Task 101's normal Arm on the installed session."""
+
+        if not isinstance(arm, NormalArmService):
+            raise TypeError("arm must be a NormalArmService")
+        if not isinstance(readiness, PrearmReadinessService):
+            raise TypeError("readiness must be a PrearmReadinessService")
+        if self._reject_if_busy():
+            return
+        if self._armed_interlock:
+            self.arm_snapshot_ready.emit(arm.snapshot)
+            return
+        connected = self._service.snapshot
+        session = self._active_session
+        if session is None or connected.link_kind is not TelemetryLinkKind.SIK:
+            token = CancellationToken()
+            snapshot = arm.request_normal_arm(
+                _UnavailableNormalArmGateway(),
+                connected,
+                readiness,
+                now_s=self._clock.now(),
+                command_channel_idle=True,
+                cancellation=token,
+            )
+            self.arm_snapshot_ready.emit(snapshot)
+            return
+        token = CancellationToken()
+        gateway = NativeNormalArmGateway(session.normal_arm_link, clock=self._clock)
+        self._active_token = token
+        port = self._active_port
+        if port is None:  # pragma: no cover - invariant defended by session ownership
+            raise RuntimeError("installed session is missing its connected port")
+
+        def operation() -> object:
+            arm_snapshot = arm.request_normal_arm(
+                gateway,
+                connected,
+                readiness,
+                now_s=self._clock.now(),
+                # The shared controller acquired the sole transaction slot
+                # before this worker started; that lease is the idle proof.
+                command_channel_idle=True,
+                cancellation=token,
+            )
+            connected_snapshot = self._service.snapshot
+            if arm_snapshot.state is NormalArmState.ARMED:
+                # The gateway consumes the heartbeat proving Armed. Collect a later
+                # receive-only snapshot on the same worker/session so stale disarmed
+                # application evidence cannot authorize another request.
+                connected_snapshot = self._service.refresh_telemetry(
+                    port,
+                    duration_s=TELEMETRY_TIMEOUT_S,
+                    cancellation=token,
+                )
+            return _ArmResult(arm_snapshot, connected_snapshot)
+
+        self._submit(
+            operation,
+            "Requesting normal Arm and awaiting selected-target telemetry proof…",
+        )
+
     def sync_mission(self, snapshot: OfflineMissionSnapshot) -> None:
         """Feed the authoritative Builder revision, cancelling stale active work."""
 
@@ -161,7 +324,9 @@ class ConnectedMissionController(QObject):
             self._pending_mission = snapshot
             if self._active_token is not None:
                 self._active_token.cancel()
-            self._widget.set_busy(True, "Mission changed — cancelling stale connected work…")
+            detail = "Mission changed — cancelling stale connected work…"
+            self._widget.set_busy(True, detail)
+            self.busy_changed.emit(True, detail)
             return
         self._apply_mission(snapshot)
 
@@ -171,11 +336,11 @@ class ConnectedMissionController(QObject):
         self._shutting_down = True
         if self._active_token is not None:
             self._active_token.cancel()
-        link = self._active_link
-        self._active_link = None
+        session = self._active_session
+        self._active_session = None
         self._active_port = None
-        if link is not None:
-            link.close()
+        if session is not None:
+            session.close()
         self._service.disconnect()
 
     @Slot(object)
@@ -204,7 +369,7 @@ class ConnectedMissionController(QObject):
             self._disconnect()
 
     def _refresh_ports(self) -> None:
-        if self._reject_if_busy() or self._active_link is not None:
+        if self._reject_if_busy() or self._active_session is not None:
             return
 
         def operation() -> object:
@@ -222,14 +387,14 @@ class ConnectedMissionController(QObject):
         self._submit(operation, "Refreshing Windows serial ports…")
 
     def _open_and_discover(self, endpoint: str, kind: TransportKind, baudrate: int) -> None:
-        if self._reject_if_busy() or self._active_link is not None:
+        if self._reject_if_busy() or self._active_session is not None:
             return
         descriptor = TransportDescriptor(endpoint, kind, baudrate)
         token = CancellationToken()
 
         def operation() -> object:
             try:
-                link = self._link_factory(descriptor)
+                session = self._link_factory(descriptor)
             except TransportOpenError as error:
                 return _OpenResult(
                     self._service.connection_failed(
@@ -239,14 +404,14 @@ class ConnectedMissionController(QObject):
                     )
                 )
             try:
-                port = self._port_factory(link, self._clock)
+                port = self._port_factory(session.mission_link, self._clock)
                 snapshot = self._service.discover(
                     port,
                     duration_s=DISCOVERY_TIMEOUT_S,
                     cancellation=token,
                 )
                 if token.is_cancelled():
-                    link.close()
+                    session.close()
                     return _OpenResult(
                         self._service.connection_failed(
                             ConnectedFailureCode.CANCELLED,
@@ -254,7 +419,7 @@ class ConnectedMissionController(QObject):
                         )
                     )
                 if snapshot.failure is not None:
-                    link.close()
+                    session.close()
                     return _OpenResult(
                         self._service.connection_failed(
                             snapshot.failure.code
@@ -269,7 +434,7 @@ class ConnectedMissionController(QObject):
                         )
                     )
                 if not snapshot.candidates:
-                    link.close()
+                    session.close()
                     return _OpenResult(
                         self._service.connection_failed(
                             ConnectedFailureCode.NO_HEARTBEAT,
@@ -280,9 +445,9 @@ class ConnectedMissionController(QObject):
                             source_code="discovery_timeout",
                         )
                     )
-                return _OpenResult(snapshot, link, port)
+                return _OpenResult(snapshot, session, port)
             except Exception:
-                link.close()
+                session.close()
                 raise
 
         self._active_token = token
@@ -400,16 +565,18 @@ class ConnectedMissionController(QObject):
             self._disconnect_after_operation = True
             if self._active_token is not None:
                 self._active_token.cancel()
-            self._widget.set_busy(True, "Cancelling the active operation before closing the link…")
+            detail = "Cancelling the active operation before closing the link…"
+            self._widget.set_busy(True, detail)
+            self.busy_changed.emit(True, detail)
             return
-        link = self._active_link
-        if link is None:
+        session = self._active_session
+        if session is None:
             self._render(self._service.disconnect())
             return
 
         def operation() -> object:
             try:
-                link.close()
+                session.close()
             finally:
                 snapshot = self._service.disconnect()
             return _DisconnectedResult(snapshot)
@@ -419,7 +586,7 @@ class ConnectedMissionController(QObject):
     def _require_port(self) -> ConnectedVehiclePort | None:
         if self._reject_if_busy():
             return None
-        if self._active_link is None or self._active_port is None:
+        if self._active_session is None or self._active_port is None:
             self._render(
                 self._service.connection_failed(
                     ConnectedFailureCode.DISCONNECTED,
@@ -441,6 +608,7 @@ class ConnectedMissionController(QObject):
             return
         self._busy = True
         self._widget.set_busy(True, detail)
+        self.busy_changed.emit(True, detail)
         worker = _ConnectedOperation(operation)
         self._active_worker = worker
         worker.signals.completed.connect(self._complete)
@@ -450,25 +618,57 @@ class ConnectedMissionController(QObject):
     @Slot(object)
     def _complete(self, result: object) -> None:
         close_connection = False
+        prearm_snapshot: PrearmReadinessSnapshot | None = None
+        arm_snapshot: NormalArmSnapshot | None = None
         if isinstance(result, _PortsResult):
             self._widget.set_serial_ports(result.ports)
             snapshot = self._service.snapshot
         elif isinstance(result, _OpenResult):
             snapshot = result.snapshot
-            if result.link is not None and result.port is not None:
-                self._active_link = result.link
+            if result.session is not None and result.port is not None:
+                self._active_session = result.session
                 self._active_port = result.port
+                self._armed_interlock = False
         elif isinstance(result, _SnapshotResult):
             snapshot = result.snapshot
             close_connection = result.close_connection
         elif isinstance(result, _DisconnectedResult):
-            self._active_link = None
+            self._active_session = None
             self._active_port = None
+            self._armed_interlock = False
             snapshot = result.snapshot
         elif isinstance(result, _ClosedFailureResult):
-            self._active_link = None
+            self._active_session = None
             self._active_port = None
+            self._armed_interlock = False
             snapshot = result.snapshot
+        elif isinstance(result, _PrearmResult):
+            prearm_snapshot = result.snapshot
+            if result.snapshot.request_state is PrearmRequestState.LINK_LOST:
+                snapshot = self._service.connection_failed(
+                    ConnectedFailureCode.DISCONNECTED,
+                    "The SiK link was lost during the native pre-arm request.",
+                )
+                close_connection = True
+            else:
+                snapshot = self._service.snapshot
+        elif isinstance(result, _ArmResult):
+            arm_snapshot = result.snapshot
+            snapshot = result.connected
+            if result.snapshot.state is NormalArmState.ARMED:
+                self._armed_interlock = True
+            if snapshot.failure is not None and snapshot.failure.code in {
+                ConnectedFailureCode.CANCELLED,
+                ConnectedFailureCode.DISCONNECTED,
+                ConnectedFailureCode.PORT_UNAVAILABLE,
+            }:
+                close_connection = True
+            if result.snapshot.state is NormalArmState.LINK_LOST:
+                snapshot = self._service.connection_failed(
+                    ConnectedFailureCode.DISCONNECTED,
+                    "The SiK link was lost during normal Arm; vehicle state is uncertain.",
+                )
+                close_connection = True
         else:  # pragma: no cover - defensive injected worker boundary
             snapshot = self._service.connection_failed(
                 ConnectedFailureCode.PORT_OPEN_FAILED,
@@ -477,6 +677,10 @@ class ConnectedMissionController(QObject):
             close_connection = True
         disconnect_requested = self._disconnect_after_operation
         self._finish()
+        if prearm_snapshot is not None:
+            self.prearm_snapshot_ready.emit(prearm_snapshot)
+        if arm_snapshot is not None:
+            self.arm_snapshot_ready.emit(arm_snapshot)
         if self._pending_mission is not None:
             pending = self._pending_mission
             self._pending_mission = None
@@ -505,10 +709,11 @@ class ConnectedMissionController(QObject):
         self._busy = False
         self._disconnect_after_operation = False
         self._widget.set_busy(False)
+        self.busy_changed.emit(False, "")
 
     def _close_preserving_failure(self) -> None:
-        link = self._active_link
-        if link is None:
+        session = self._active_session
+        if session is None:
             return
         failure = self._service.snapshot.failure
         if failure is not None and failure.code in {
@@ -529,7 +734,7 @@ class ConnectedMissionController(QObject):
             )
 
         def operation() -> object:
-            link.close()
+            session.close()
             return _ClosedFailureResult(snapshot)
 
         self._submit(operation, "Closing the failed or cancelled serial link…")
@@ -575,3 +780,31 @@ def _operation_result(snapshot: ConnectedMissionSnapshot) -> _SnapshotResult:
         ConnectedFailureCode.PORT_UNAVAILABLE,
     }
     return _SnapshotResult(snapshot, close_connection=close)
+
+
+class _UnavailablePrearmGateway:
+    """Defensive non-I/O gateway used only while Task 100's gate is closed."""
+
+    def request_prearm_checks(
+        self,
+        target: ConnectedTarget,
+        *,
+        target_valid_for_s: float,
+        cancellation: CancellationView,
+    ) -> PrearmCommandResult:
+        del target, target_valid_for_s, cancellation
+        raise AssertionError("pre-arm gateway reached without an installed SiK session")
+
+
+class _UnavailableNormalArmGateway:
+    """Defensive non-I/O gateway used only while Task 101's gate is closed."""
+
+    def request_normal_arm(
+        self,
+        target: ConnectedTarget,
+        *,
+        target_valid_for_s: float,
+        cancellation: CancellationView,
+    ) -> NormalArmCommandResult:
+        del target, target_valid_for_s, cancellation
+        raise AssertionError("normal-Arm gateway reached without an installed SiK session")

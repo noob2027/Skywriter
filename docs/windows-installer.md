@@ -2,11 +2,11 @@
 
 ## What this proves
 
-Tasks 106 through 110 package the accepted SKYWriter Python, PySide6/Qt WebEngine,
+Tasks 106 through 111 package the accepted SKYWriter Python, PySide6/Qt WebEngine,
 pymavlink, pyserial, map assets, Python runtime, Qt plugins/resources, and dependency notices
 as a PyInstaller `onedir` payload. Inno Setup wraps that payload in one per-user Setup
-executable. Version 0.1.4 adds explicit installed serial selection and the production
-Connected mission/telemetry composition.
+executable. Version 0.1.5 retains Task 110's explicit Connected mission/telemetry
+composition and adds only the installed native Preflight and normal Arm composition.
 
 Successful installation and launch prove desktop deployment mechanics only. They do not
 prove vehicle compatibility, bench readiness, arming, motor, mission-execution, or flight
@@ -19,7 +19,7 @@ aircraft-specific setting is embedded in startup behavior.
 
 The expected files are:
 
-- `SKYWriter-Prototype-Setup-0.1.4.exe`
+- `SKYWriter-Prototype-Setup-0.1.5.exe`
 - `SHA256SUMS.txt`
 - `build-metadata.json`
 
@@ -27,7 +27,7 @@ Before installing, compare the Setup file's SHA-256 value with `SHA256SUMS.txt`.
 PowerShell:
 
 ```powershell
-Get-FileHash .\SKYWriter-Prototype-Setup-0.1.4.exe -Algorithm SHA256
+Get-FileHash .\SKYWriter-Prototype-Setup-0.1.5.exe -Algorithm SHA256
 ```
 
 Double-click Setup and follow the prompts. It installs for the current Windows user under
@@ -58,7 +58,7 @@ provisional icon, builds the `onedir` payload, acquires
 Inno Setup 6.7.3 from its official release, verifies the pinned download SHA-256, compiles
 the installer, and runs a silent install/launch/uninstall smoke test. `-BuildRoot` may set
 another dedicated short path whose final directory name contains `skywriter` or `sw106`
-through `sw110`.
+through `sw111`.
 
 The packaged launch smoke starts from an arbitrary working directory, blocks the MAVLink
 open boundary, and uses an interceptor-gated loopback tile fixture. It waits up to 15
@@ -83,6 +83,13 @@ proves there is no automatic selection, explicitly selects the port and SiK link
 checks the USB 115200 and SiK 57600 defaults, and never clicks Open. A separate bounded
 packaged import smoke verifies that the Windows `serial.tools.list_ports_windows` runtime is
 present. The MAVLink open audit must still report zero attempts and zero successes.
+
+Task 111 keeps that hardware-blocked pass inert while requiring the installed Preflight
+surface to be production-composed and naturally fail closed without a link. It binds only
+the dedicated native pre-arm request, explicit readiness review, and normal Arm services to
+the existing single-link/single-worker controller lifecycle. The installed acceptance does
+not run a live Arm. Flight remains unbound, and no Disarm, force-arm, AUTO, Pause/Resume,
+Land Here Now, RTL, `PARAM_SET`, or generic command surface is added.
 
 When the exact build uses the bundled workspace Python, the surrounding tool runtime also
 places Poppler on `PATH`. The PyInstaller spec rejects Poppler's private unversioned ICU
@@ -135,6 +142,11 @@ Task 110 supersedes Task 109 with 0.1.4. Its exact size, SHA-256, installed seri
 evidence, map pixels, shortcut launch, and uninstall result are recorded in the Task 110
 report and generated artifacts. Hardware-blocked packaging evidence is not a real-port,
 vehicle, bench, or flight claim.
+
+Task 111 supersedes Task 110 with 0.1.5. Its exact size, SHA-256, unsigned status, installed
+Preflight gating, map pixels, shortcut launch, and uninstall result are recorded in the
+Task 111 report and generated artifacts. That packaging evidence does not exercise a live
+Arm and is not a real-port, vehicle, bench, motor, mission-execution, or flight claim.
 
 ## Optional signing seam
 

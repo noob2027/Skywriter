@@ -441,6 +441,38 @@ class PymavlinkMissionLink:
             raise ConnectionError("MAVLink connection is closed")
 
 
+def _emit_prearm_checks(connection: Any, target: MavlinkAddress) -> None:
+    connection.mav.command_long_send(
+        target.system_id,
+        target.component_id,
+        MAV_CMD_RUN_PREARM_CHECKS,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
+
+
+def _emit_normal_arm(connection: Any, target: MavlinkAddress) -> None:
+    connection.mav.command_long_send(
+        target.system_id,
+        target.component_id,
+        MAV_CMD_COMPONENT_ARM_DISARM,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
+
+
 class PymavlinkPrearmLink:
     """pymavlink-backed link exposing only the Task 100 native request."""
 
@@ -501,19 +533,7 @@ class PymavlinkPrearmLink:
 
         self._require_connected()
         try:
-            self._connection.mav.command_long_send(
-                target.system_id,
-                target.component_id,
-                MAV_CMD_RUN_PREARM_CHECKS,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            )
+            _emit_prearm_checks(self._connection, target)
         except (EOFError, OSError) as error:
             self._connected = False
             raise ConnectionError("MAVLink connection closed while sending") from error
@@ -583,19 +603,7 @@ class PymavlinkNormalArmLink:
 
         self._require_connected()
         try:
-            self._connection.mav.command_long_send(
-                target.system_id,
-                target.component_id,
-                MAV_CMD_COMPONENT_ARM_DISARM,
-                0,
-                1,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            )
+            _emit_normal_arm(self._connection, target)
         except (EOFError, OSError) as error:
             self._connected = False
             raise ConnectionError("MAVLink connection closed while sending") from error
@@ -603,6 +611,74 @@ class PymavlinkNormalArmLink:
     def _require_connected(self) -> None:
         if not self._connected:
             raise ConnectionError("MAVLink connection is closed")
+
+
+class _SharedPymavlinkPrearmLink:
+    """Task 111 pre-arm facet sharing the installed session's sole receiver."""
+
+    def __init__(self, mission_link: PymavlinkMissionLink) -> None:
+        self._mission_link = mission_link
+        self.descriptor = mission_link.descriptor
+        self.local_address = mission_link.local_address
+
+    def is_connected(self) -> bool:
+        return self._mission_link.is_connected()
+
+    def receive(self, timeout_s: float) -> IncomingMessage | None:
+        return self._mission_link.receive(timeout_s)
+
+    def send_prearm_checks(self, target: MavlinkAddress) -> None:
+        """Send exact command 401 with all seven reserved parameters zero."""
+
+        if self.descriptor.kind is not TransportKind.SIK:
+            raise ValueError("native pre-arm requests require an explicitly classified SiK link")
+        self._mission_link._emit(
+            lambda: _emit_prearm_checks(self._mission_link._connection, target)
+        )
+
+
+class _SharedPymavlinkNormalArmLink:
+    """Task 111 normal-Arm facet sharing the installed session's sole receiver."""
+
+    def __init__(self, mission_link: PymavlinkMissionLink) -> None:
+        self._mission_link = mission_link
+        self.descriptor = mission_link.descriptor
+        self.local_address = mission_link.local_address
+
+    def is_connected(self) -> bool:
+        return self._mission_link.is_connected()
+
+    def receive(self, timeout_s: float) -> IncomingMessage | None:
+        return self._mission_link.receive(timeout_s)
+
+    def send_normal_arm(self, target: MavlinkAddress) -> None:
+        """Send exact command 400 with the normal selector and reserved values."""
+
+        if self.descriptor.kind is not TransportKind.SIK:
+            raise ValueError("normal Arm requires an explicitly classified SiK link")
+        self._mission_link._emit(lambda: _emit_normal_arm(self._mission_link._connection, target))
+
+
+class PymavlinkInstalledSession:
+    """One physical handle with only Task 110/111's three typed facets."""
+
+    def __init__(
+        self,
+        connection: Any,
+        descriptor: TransportDescriptor,
+        *,
+        local_address: MavlinkAddress = DEFAULT_GCS_ADDRESS,
+    ) -> None:
+        self.mission_link = PymavlinkMissionLink(
+            connection,
+            descriptor,
+            local_address=local_address,
+        )
+        self.prearm_link = _SharedPymavlinkPrearmLink(self.mission_link)
+        self.normal_arm_link = _SharedPymavlinkNormalArmLink(self.mission_link)
+
+    def close(self) -> None:
+        self.mission_link.close()
 
 
 class PymavlinkNativeAutoStartLink:
@@ -919,6 +995,28 @@ def open_pymavlink_link(
 ) -> PymavlinkMissionLink:
     """Open the explicitly supplied endpoint under the exact pinned library/dialect."""
 
+    connection = _open_pymavlink_connection(descriptor, local_address=local_address)
+    return PymavlinkMissionLink(connection, descriptor, local_address=local_address)
+
+
+def open_installed_session(
+    descriptor: TransportDescriptor,
+    *,
+    local_address: MavlinkAddress = DEFAULT_GCS_ADDRESS,
+) -> PymavlinkInstalledSession:
+    """Open the one Task 110/111 production handle and expose only typed facets."""
+
+    connection = _open_pymavlink_connection(descriptor, local_address=local_address)
+    return PymavlinkInstalledSession(connection, descriptor, local_address=local_address)
+
+
+def _open_pymavlink_connection(
+    descriptor: TransportDescriptor,
+    *,
+    local_address: MavlinkAddress,
+) -> Any:
+    """Open the sole physical transport after pinned-runtime validation."""
+
     global _vehicle_io_attempts, _vehicle_io_successes
     with _VEHICLE_IO_AUDIT_LOCK:
         _vehicle_io_attempts += 1
@@ -951,7 +1049,7 @@ def open_pymavlink_link(
         raise _transport_open_error(error) from error
     with _VEHICLE_IO_AUDIT_LOCK:
         _vehicle_io_successes += 1
-    return PymavlinkMissionLink(connection, descriptor, local_address=local_address)
+    return connection
 
 
 def open_mission_link(

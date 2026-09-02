@@ -77,6 +77,23 @@ Reviewed screenshots:
 - [link loss](screenshots/task-101/05-link-loss.png)
 - [telemetry disagreement](screenshots/task-101/06-telemetry-disagreement.png)
 
+## Installed composition
+
+Task 111 binds the unchanged Task 101 service and gateway to the installed Preflight
+panel. The typed `NormalArmRequested` intent may enter the shared Connected controller's
+single worker only while the exact Task 100 readiness fingerprint and every Task 101 gate
+remain current. The installed session exposes a dedicated normal-Arm facet over the same
+physical link as mission and native-prearm work; it adds no caller-provided command or
+parameter surface.
+
+The button remains unavailable without the exact reviewed same-mission/same-target SiK
+state. After a telemetry-confirmed Armed result, the installed session interlocks further
+Preflight and Arm requests. A mission edit, onboard mission difference, target or identity
+change, disconnection, stale telemetry, or loss of verification invalidates the prior
+readiness rather than retaining authorization. This composition does not add Disarm,
+force-arm, AUTO, Pause/Resume, Land Here Now, RTL, `PARAM_SET`, or a generic command API,
+and Flight remains deliberately unbound.
+
 ## Stock-SITL evidence
 
 The existing twice-fresh connected workflow now routes its positive normal Arm through

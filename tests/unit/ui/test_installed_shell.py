@@ -46,7 +46,7 @@ def child(parent: QWidget, widget_type: type[TWidget], name: str) -> TWidget:
     return result
 
 
-def test_installed_shell_binds_connected_selection_but_keeps_commands_fail_closed() -> None:
+def test_installed_shell_binds_connected_and_preflight_but_keeps_flight_unbound() -> None:
     app = create_application(["skywriter-installed-shell-gates"])
     window = MainWindow(
         serial_port_enumerator=StaticSerialPortEnumerator(
@@ -78,27 +78,42 @@ def test_installed_shell_binds_connected_selection_but_keeps_commands_fail_close
     assert "Acceptance serial fixture" in ports.itemText(1)
     assert vehicle_io_audit_snapshot() == before
 
-    controls_by_tab = {
-        2: ("requestNativePrearmButton", "normalArmButton"),
-        3: (
-            "nativeAutoStartButton",
-            "nativePauseButton",
-            "nativeResumeButton",
-            "landHereNowButton",
-            "landHereNowConfirmButton",
-        ),
-    }
-    gate_by_tab = {2: "preflightInteractionGate", 3: "flightInteractionGate"}
-    for tab_index, control_names in controls_by_tab.items():
-        tabs.setCurrentIndex(tab_index)
-        app.processEvents()
-        gate = child(window, QLabel, gate_by_tab[tab_index])
-        assert gate.isVisible()
-        assert "Task 110" in gate.text()
-        for name in control_names:
-            control = child(window, QPushButton, name)
-            assert not control.isEnabled()
-            assert "Connected tab" in control.toolTip()
+    tabs.setCurrentIndex(2)
+    app.processEvents()
+    preflight_gate = child(window, QLabel, "preflightInteractionGate")
+    readiness = window.preflight_controller.readiness_service.snapshot
+    arm = window.preflight_controller.arm_service.snapshot
+    assert not preflight_gate.isVisible()
+    assert not window.connected_controller.service.snapshot.link_connected
+    assert window.connected_controller.service.snapshot.selected_target is None
+    assert not readiness.application_gate_ready
+    assert not arm.request_available
+    # The dedicated request surface is production-bound, but this acceptance does
+    # not click it. Review and normal Arm stay closed until current native evidence.
+    assert child(window, QPushButton, "requestNativePrearmButton").isEnabled()
+    assert not child(window, QCheckBox, "acknowledgeNativePrearmReview").isEnabled()
+    assert not child(window, QPushButton, "normalArmButton").isEnabled()
+    assert vehicle_io_audit_snapshot() == before
+
+    tabs.setCurrentIndex(3)
+    app.processEvents()
+    flight_gate = child(window, QLabel, "flightInteractionGate")
+    assert flight_gate.isVisible()
+    assert "Task 111" in flight_gate.text()
+    assert "Flight remains deliberately unbound" in flight_gate.text()
+    assert not hasattr(window, "flight_controller")
+    for name in (
+        "nativeAutoStartButton",
+        "nativePauseButton",
+        "nativeResumeButton",
+        "landHereNowButton",
+        "landHereNowConfirmButton",
+        "landHereNowCancelButton",
+    ):
+        control = child(window, QPushButton, name)
+        assert not control.isEnabled()
+        assert control.toolTip() == flight_gate.text()
+    assert vehicle_io_audit_snapshot() == before
     window.close()
 
 

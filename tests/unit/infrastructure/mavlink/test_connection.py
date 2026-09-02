@@ -12,6 +12,7 @@ from skywriter.infrastructure.mavlink.connection import (
     IncomingMessage,
     MavlinkAddress,
     MissionLink,
+    PymavlinkInstalledSession,
     PymavlinkMissionLink,
     TargetSelectionError,
     TransportDescriptor,
@@ -19,6 +20,7 @@ from skywriter.infrastructure.mavlink.connection import (
     TransportOpenError,
     TransportOpenFailureCode,
     discover_targets,
+    open_installed_session,
     open_pymavlink_link,
     select_target,
 )
@@ -264,3 +266,160 @@ def test_pymavlink_boundary_discards_bad_data_before_valid_target_and_closes_onc
     link.close()
     link.close()
     assert connection.close_count == 1
+
+
+class CommandRecorder:
+    def __init__(self) -> None:
+        self.command_long_calls: list[tuple[object, ...]] = []
+
+    def command_long_send(self, *arguments: object) -> None:
+        self.command_long_calls.append(arguments)
+
+
+class InstalledRawConnection(RawConnection):
+    def __init__(self, messages: list[RawMessage]) -> None:
+        super().__init__(messages)
+        self.mav = CommandRecorder()
+        self.receive_count = 0
+
+    def recv_match(self, *, blocking: bool, timeout: float) -> RawMessage | None:
+        self.receive_count += 1
+        return super().recv_match(blocking=blocking, timeout=timeout)
+
+
+def test_installed_session_facets_share_one_receiver_and_idempotent_close_owner() -> None:
+    connection = InstalledRawConnection(
+        [
+            RawMessage("HEARTBEAT", 1, 1),
+            RawMessage("SYS_STATUS", 1, 1),
+            RawMessage("COMMAND_ACK", 1, 1),
+        ]
+    )
+    session = PymavlinkInstalledSession(
+        connection,
+        TransportDescriptor("COM7", TransportKind.SIK, 57600),
+    )
+
+    assert session.mission_link.receive(0.1).name == "HEARTBEAT"  # type: ignore[union-attr]
+    assert session.prearm_link.receive(0.1).name == "SYS_STATUS"  # type: ignore[union-attr]
+    assert session.normal_arm_link.receive(0.1).name == "COMMAND_ACK"  # type: ignore[union-attr]
+    assert connection.receive_count == 3
+    assert not hasattr(session.prearm_link, "close")
+    assert not hasattr(session.normal_arm_link, "close")
+
+    session.close()
+    session.close()
+
+    assert connection.close_count == 1
+    assert session.mission_link.is_connected() is False
+    assert session.prearm_link.is_connected() is False
+    assert session.normal_arm_link.is_connected() is False
+    with pytest.raises(ConnectionError, match="closed"):
+        session.prearm_link.receive(0.0)
+
+
+def test_installed_session_facets_emit_only_exact_prearm_and_normal_arm_commands() -> None:
+    connection = InstalledRawConnection([])
+    session = PymavlinkInstalledSession(
+        connection,
+        TransportDescriptor("COM7", TransportKind.SIK, 57600),
+    )
+    target = MavlinkAddress(7, 1)
+
+    session.prearm_link.send_prearm_checks(target)
+    session.normal_arm_link.send_normal_arm(target)
+
+    assert connection.mav.command_long_calls == [
+        (7, 1, 401, 0, 0, 0, 0, 0, 0, 0, 0),
+        (7, 1, 400, 0, 1, 0, 0, 0, 0, 0, 0),
+    ]
+
+
+def test_installed_session_command_facets_reject_usb_without_emitting() -> None:
+    connection = InstalledRawConnection([])
+    session = PymavlinkInstalledSession(
+        connection,
+        TransportDescriptor("COM7", TransportKind.USB, 115200),
+    )
+    target = MavlinkAddress(7, 1)
+
+    with pytest.raises(ValueError, match="SiK"):
+        session.prearm_link.send_prearm_checks(target)
+    with pytest.raises(ValueError, match="SiK"):
+        session.normal_arm_link.send_normal_arm(target)
+
+    assert connection.mav.command_long_calls == []
+
+
+def test_installed_session_public_surface_is_closed_to_other_vehicle_commands() -> None:
+    session = PymavlinkInstalledSession(
+        InstalledRawConnection([]),
+        TransportDescriptor("COM7", TransportKind.SIK, 57600),
+    )
+
+    public_session = {name for name in dir(session) if not name.startswith("_")}
+    public_mission = {name for name in dir(session.mission_link) if not name.startswith("_")}
+    public_prearm = {name for name in dir(session.prearm_link) if not name.startswith("_")}
+    public_normal_arm = {name for name in dir(session.normal_arm_link) if not name.startswith("_")}
+
+    assert public_session == {"close", "mission_link", "normal_arm_link", "prearm_link"}
+    assert public_mission == {
+        "close",
+        "descriptor",
+        "is_connected",
+        "local_address",
+        "receive",
+        "send_mission_ack",
+        "send_mission_count",
+        "send_mission_item_int",
+        "send_mission_request_int",
+        "send_mission_request_list",
+    }
+    assert public_prearm == {
+        "descriptor",
+        "is_connected",
+        "local_address",
+        "receive",
+        "send_prearm_checks",
+    }
+    assert public_normal_arm == {
+        "descriptor",
+        "is_connected",
+        "local_address",
+        "receive",
+        "send_normal_arm",
+    }
+
+
+def test_open_installed_session_opens_one_physical_handle_for_all_facets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = InstalledRawConnection([])
+    open_calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_connection(endpoint: str, **options: object) -> InstalledRawConnection:
+        open_calls.append((endpoint, options))
+        return connection
+
+    fake_mavutil = SimpleNamespace(
+        set_dialect=lambda _dialect: None,
+        mavlink=SimpleNamespace(WIRE_PROTOCOL_VERSION="2.0"),
+        mavlink_connection=fake_connection,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "pymavlink",
+        SimpleNamespace(__version__="2.4.41", mavutil=fake_mavutil),
+    )
+    monkeypatch.delenv("SKYWRITER_PACKAGED_SMOKE_TEST", raising=False)
+    monkeypatch.delenv("MAVLINK20", raising=False)
+
+    session = open_installed_session(TransportDescriptor("COM7", TransportKind.SIK, 57600))
+
+    assert len(open_calls) == 1
+    assert session.mission_link.descriptor is session.prearm_link.descriptor
+    assert session.mission_link.descriptor is session.normal_arm_link.descriptor
+    session.prearm_link.send_prearm_checks(MavlinkAddress(1, 1))
+    session.normal_arm_link.send_normal_arm(MavlinkAddress(1, 1))
+    assert len(open_calls) == 1
+    assert len(connection.mav.command_long_calls) == 2

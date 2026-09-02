@@ -221,6 +221,16 @@ to prove the selection/gating surface without opening a vehicle. See
 [`codex-tasks/110-installed-connected-composition.md`](../codex-tasks/110-installed-connected-composition.md)
 and [`docs/task-110-connected-production.md`](task-110-connected-production.md).
 
+Task 111 follows accepted Task 110 and binds only the existing Task 100 native Preflight
+request/review and Task 101 normal Arm services to the installed Connected controller's
+single-session lifecycle. The dedicated mission, native-prearm, and normal-Arm facets share
+one physical link and one serialized worker slot. Flight remains unbound; no Disarm,
+force-arm, AUTO, Pause/Resume, Land Here Now, RTL, parameter write, or generic command
+surface is introduced. The installed acceptance remains hardware-blocked and does not run a
+live Arm. See
+[`codex-tasks/111-installed-preflight-arm-composition.md`](../codex-tasks/111-installed-preflight-arm-composition.md)
+and [`docs/task-111-preflight-arm-production.md`](task-111-preflight-arm-production.md).
+
 ## 10. Validation ladder
 
 ### Gate A — automated offline

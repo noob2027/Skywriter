@@ -238,6 +238,26 @@ try {
         $acceptanceEvidence.serial_selection.selected_link_kind -ne "sik" -or
         $acceptanceEvidence.serial_selection.sik_default_baudrate -ne 57600 -or
         $acceptanceEvidence.serial_selection.vehicle_open_clicked -or
+        -not $acceptanceEvidence.preflight_composition.controller_bound -or
+        $acceptanceEvidence.preflight_composition.global_unavailable_gate_visible -or
+        $acceptanceEvidence.preflight_composition.link_connected -or
+        $acceptanceEvidence.preflight_composition.selected_target_present -or
+        $acceptanceEvidence.preflight_composition.readiness_application_gate_ready -or
+        -not $acceptanceEvidence.preflight_composition.native_request_enabled -or
+        $acceptanceEvidence.preflight_composition.review_enabled -or
+        $acceptanceEvidence.preflight_composition.normal_arm_request_available -or
+        $acceptanceEvidence.preflight_composition.normal_arm_enabled -or
+        $acceptanceEvidence.preflight_composition.vehicle_open_clicked -or
+        $acceptanceEvidence.preflight_composition.prearm_or_arm_clicked -or
+        $acceptanceEvidence.flight_boundary.controller_bound -or
+        -not $acceptanceEvidence.flight_boundary.global_unavailable_gate_visible -or
+        -not $acceptanceEvidence.flight_boundary.controls_disabled.nativeAutoStartButton -or
+        -not $acceptanceEvidence.flight_boundary.controls_disabled.nativePauseButton -or
+        -not $acceptanceEvidence.flight_boundary.controls_disabled.nativeResumeButton -or
+        -not $acceptanceEvidence.flight_boundary.controls_disabled.landHereNowButton -or
+        -not $acceptanceEvidence.flight_boundary.controls_disabled.landHereNowConfirmButton -or
+        -not $acceptanceEvidence.flight_boundary.controls_disabled.landHereNowCancelButton -or
+        $acceptanceEvidence.flight_boundary.flight_command_clicked -or
         $acceptanceEvidence.screenshots.Count -lt 10 -or
         $acceptanceEvidence.tab_navigation.Count -ne 3
     ) {
