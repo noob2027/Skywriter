@@ -150,6 +150,28 @@ On Ground. Only fixed request-message 512 for `EXTENDED_SYS_STATE` 245 is added 
 command transaction. See [`pause-resume.md`](pause-resume.md) and
 [`land-here-now.md`](land-here-now.md).
 
+## Task 110 installed production composition
+
+Version 0.1.4 binds the accepted `ConnectedMissionService`, `ConnectedMavlinkPort`, mission
+protocol, receive-only telemetry adapter, and connected typed intents in the normal Windows
+application. The operator must explicitly refresh the current serial inventory, select one
+human-described port, select USB or SiK, review the resulting default baud (115200 for USB,
+57600 for SiK), open/discover off the Qt thread, and then explicitly select one freshly
+rediscovered vehicle. Enumeration never selects or opens a port.
+
+One controller owns at most one serial link and one cancellable worker operation. Discovery
+is bounded to three seconds, receive-only telemetry/Home collection to five seconds, and the
+existing mission protocol to its 30-second total deadline, bounded per-response/item waits,
+and five retries. Disconnect cancels before closing; application shutdown also cancels and
+closes the sole handle. Busy, missing/disappeared, no-heartbeat/wrong-baud, cancellation,
+identity, stale telemetry, protocol, acknowledgment, and exact-readback failures remain
+typed and visible. A busy port explicitly tells the operator to close Mission Planner.
+
+The current Builder compiled preview and revision are authoritative inputs. Any edit clears
+that compiled input and all readiness evidence; an edit during connected work cancels the
+stale operation before applying the new revision. Preflight and every flight-command
+binding remain unavailable in Task 110.
+
 ## Platform and hardware limits
 
 The official pinned SITL artifact is Linux x86_64. Windows developers can run all

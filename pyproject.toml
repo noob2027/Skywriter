@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skywriter"
-version = "0.1.3"
+version = "0.1.4"
 description = "Windows desktop foundation for the SKYWriter mission console"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
@@ -12,6 +12,7 @@ dependencies = [
     "PySide6-Addons==6.11.1",
     "PySide6-Essentials==6.11.1",
     "pymavlink==2.4.41",
+    "pyserial==3.5",
 ]
 
 [project.optional-dependencies]
@@ -53,5 +54,5 @@ mypy_path = ["src", "."]
 files = ["src", "tests", "scripts/sitl"]
 
 [[tool.mypy.overrides]]
-module = ["pymavlink", "pymavlink.*"]
+module = ["pymavlink", "pymavlink.*", "serial", "serial.*"]
 ignore_missing_imports = true

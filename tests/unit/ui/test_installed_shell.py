@@ -3,9 +3,11 @@
 from typing import TypeVar, cast
 
 from PySide6.QtCore import QPoint, QRect, QSize
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -14,10 +16,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from skywriter.domain.mission import GeoPoint
+from skywriter.application import OfflineMissionService
+from skywriter.domain.mission import GeoPoint, LandAction, MissionSettings
+from skywriter.infrastructure.json_repository import JsonMissionRepository
+from skywriter.infrastructure.mavlink.connection import vehicle_io_audit_snapshot
+from skywriter.infrastructure.serial_ports import (
+    SerialPortInfo,
+    StaticSerialPortEnumerator,
+)
 from skywriter.main import create_application
 from skywriter.ui import MainWindow
 from skywriter.ui.installed_acceptance import _is_exact_or_closest_available
+from skywriter.ui.offline_workspace import OfflineMissionWorkspace
 
 TWidget = TypeVar("TWidget", bound=QWidget)
 
@@ -36,23 +46,39 @@ def child(parent: QWidget, widget_type: type[TWidget], name: str) -> TWidget:
     return result
 
 
-def test_installed_shell_hardware_controls_are_fail_closed_with_visible_reason() -> None:
+def test_installed_shell_binds_connected_selection_but_keeps_commands_fail_closed() -> None:
     app = create_application(["skywriter-installed-shell-gates"])
-    window = MainWindow()
+    window = MainWindow(
+        serial_port_enumerator=StaticSerialPortEnumerator(
+            (SerialPortInfo("COM42", "Acceptance serial fixture"),)
+        )
+    )
     window.resize(1366, 768)
     window.show()
     tabs = child(window, QTabWidget, "primaryViews")
+    before = vehicle_io_audit_snapshot()
+
+    tabs.setCurrentIndex(1)
+    app.processEvents()
+    assert not child(window, QLabel, "connectedInteractionGate").isVisible()
+    refresh = child(window, QPushButton, "refreshSerialPortsButton")
+    ports = child(window, QComboBox, "serialPortSelection")
+    discover = child(window, QPushButton, "discoverSelectedLinkButton")
+    assert refresh.isEnabled()
+    assert not discover.isEnabled()
+    refresh.click()
+    for _ in range(100):
+        app.processEvents()
+        if ports.count() == 2 and not window.connected_controller.busy:
+            break
+        QTest.qWait(10)
+    assert ports.count() == 2
+    assert ports.currentData() is None
+    assert "COM42" in ports.itemText(1)
+    assert "Acceptance serial fixture" in ports.itemText(1)
+    assert vehicle_io_audit_snapshot() == before
 
     controls_by_tab = {
-        1: (
-            "discoverUsbButton",
-            "discoverSikButton",
-            "inspectOnboardMissionButton",
-            "uploadAndVerifyButton",
-            "refreshConnectedTelemetryButton",
-            "reverifyConnectedMissionButton",
-            "disconnectConnectedButton",
-        ),
         2: ("requestNativePrearmButton", "normalArmButton"),
         3: (
             "nativeAutoStartButton",
@@ -62,22 +88,41 @@ def test_installed_shell_hardware_controls_are_fail_closed_with_visible_reason()
             "landHereNowConfirmButton",
         ),
     }
-    gate_by_tab = {
-        1: "connectedInteractionGate",
-        2: "preflightInteractionGate",
-        3: "flightInteractionGate",
-    }
+    gate_by_tab = {2: "preflightInteractionGate", 3: "flightInteractionGate"}
     for tab_index, control_names in controls_by_tab.items():
         tabs.setCurrentIndex(tab_index)
         app.processEvents()
         gate = child(window, QLabel, gate_by_tab[tab_index])
         assert gate.isVisible()
-        assert "no production vehicle controller" in gate.text()
-        assert "no hardware access was attempted" in gate.text()
+        assert "Task 110" in gate.text()
         for name in control_names:
             control = child(window, QPushButton, name)
             assert not control.isEnabled()
-            assert "supervised hardware gate" in control.toolTip()
+            assert "Connected tab" in control.toolTip()
+    window.close()
+
+
+def test_main_window_feeds_current_builder_compile_and_invalidates_on_edit() -> None:
+    create_application(["skywriter-connected-builder-feed"])
+    service = OfflineMissionService(JsonMissionRepository())
+    service.update_settings(MissionSettings(15.0, 5.0, True))
+    service.append_action(LandAction(GeoPoint(38.8895, -77.0353), 8.0))
+    service.compile_preview()
+    workspace = OfflineMissionWorkspace(service)
+    window = MainWindow(
+        mission_workspace=workspace,
+        serial_port_enumerator=StaticSerialPortEnumerator(()),
+    )
+
+    connected = window.connected_controller.service.snapshot
+    assert connected.compiled == service.snapshot.compiled_preview
+    assert connected.mission_revision == service.snapshot.revision
+
+    workspace.new_mission()
+    invalidated = window.connected_controller.service.snapshot
+    assert invalidated.compiled is None
+    assert invalidated.mission_revision == workspace.service.snapshot.revision
+    assert invalidated.expected_package is None
     window.close()
 
 

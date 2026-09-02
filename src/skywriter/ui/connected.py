@@ -24,12 +24,23 @@ from skywriter.application.connected import (
     ConnectedTarget,
     ConnectedVerificationState,
 )
+from skywriter.application.telemetry import TelemetryLinkKind
 from skywriter.compatibility.arducopter_4_6_3 import NativeMissionItem
+from skywriter.infrastructure.serial_ports import SerialPortInfo
+
+USB_DEFAULT_BAUDRATE = 115_200
+SIK_DEFAULT_BAUDRATE = 57_600
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshPortsRequested:
+    pass
 
 
 @dataclass(frozen=True, slots=True)
 class DiscoverUsbRequested:
-    pass
+    endpoint: str
+    baudrate: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +71,8 @@ class DisconnectRequested:
 
 @dataclass(frozen=True, slots=True)
 class DiscoverSikRequested:
-    pass
+    endpoint: str
+    baudrate: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +86,8 @@ class ReverifyMissionRequested:
 
 
 ConnectedIntent: TypeAlias = (
-    DiscoverUsbRequested
+    RefreshPortsRequested
+    | DiscoverUsbRequested
     | TargetSelectionRequested
     | InspectMissionRequested
     | ReplacementConfirmationRequested
@@ -96,6 +109,9 @@ class ConnectedMissionWidget(QWidget):
         self.setObjectName("connectedMissionWidget")
         self._snapshot = ConnectedMissionSnapshot()
         self._interaction_unavailable_reason: str | None = None
+        self._serial_ports: tuple[SerialPortInfo, ...] = ()
+        self._busy = False
+        self._busy_detail = ""
         self._build_ui()
         self.render_snapshot(self._snapshot)
 
@@ -109,6 +125,38 @@ class ConnectedMissionWidget(QWidget):
         if not reason.strip():
             raise ValueError("interaction-unavailable reason must not be empty")
         self._interaction_unavailable_reason = reason
+        self.render_snapshot(self._snapshot)
+
+    def set_serial_ports(self, ports: tuple[SerialPortInfo, ...]) -> None:
+        """Render one explicit enumeration result without selecting a device."""
+
+        if not all(isinstance(port, SerialPortInfo) for port in ports):
+            raise TypeError("ports must contain SerialPortInfo values")
+        self._serial_ports = tuple(ports)
+        self._serial_port.blockSignals(True)
+        self._serial_port.clear()
+        if ports:
+            self._serial_port.addItem("Select one serial port", None)
+            for port in ports:
+                self._serial_port.addItem(port.display_name, port)
+            self._serial_status.setText(
+                f"Found {len(ports)} serial port{'s' if len(ports) != 1 else ''}. "
+                "Select one; SKYWriter will not choose or open it automatically."
+            )
+        else:
+            self._serial_port.addItem("No serial ports found — refresh after connecting one", None)
+            self._serial_status.setText(
+                "No serial ports are currently visible. Check the cable or radio, then refresh."
+            )
+        self._serial_port.setCurrentIndex(0)
+        self._serial_port.blockSignals(False)
+        self.render_snapshot(self._snapshot)
+
+    def set_busy(self, busy: bool, detail: str = "") -> None:
+        """Render the single-owner worker state; Disconnect becomes Cancel while active."""
+
+        self._busy = busy
+        self._busy_detail = detail.strip()
         self.render_snapshot(self._snapshot)
 
     def render_snapshot(self, snapshot: ConnectedMissionSnapshot) -> None:
@@ -132,6 +180,7 @@ class ConnectedMissionWidget(QWidget):
             else "Connected link is unclassified"
         )
         self._verification.setText(_verification_text(snapshot.verification_state))
+        self._telemetry.setText(_telemetry_text(snapshot))
         self._replacement.blockSignals(True)
         self._replacement.setChecked(snapshot.replacement_confirmed)
         self._replacement.blockSignals(False)
@@ -150,24 +199,51 @@ class ConnectedMissionWidget(QWidget):
         )
         self._failure.setVisible(snapshot.failure is not None)
 
+        selected_port = self._serial_port.currentData()
+        has_selected_port = isinstance(selected_port, SerialPortInfo)
+        if self._busy:
+            self._operation_status.setText(self._busy_detail or "Connected operation in progress…")
+        elif snapshot.link_connected:
+            self._operation_status.setText(
+                "One serial link is open. Disconnect it before choosing another port or link kind."
+            )
+        else:
+            self._operation_status.setText(
+                "No serial link is open. Refreshing ports never opens a vehicle connection."
+            )
+
         has_target = snapshot.selected_target is not None
         is_usb = snapshot.link_kind is not None and snapshot.link_kind.value == "usb"
         is_sik = snapshot.link_kind is not None and snapshot.link_kind.value == "sik"
-        self._inspect.setEnabled(has_target and is_usb)
-        self._replacement.setEnabled(snapshot.onboard is not None and is_usb)
-        self._upload.setEnabled(snapshot.replacement_confirmed and is_usb)
-        self._refresh.setEnabled(has_target)
+        idle = not self._busy
+        disconnected = not snapshot.link_connected
+        self._refresh_ports.setEnabled(idle and disconnected)
+        self._serial_port.setEnabled(idle and disconnected and bool(self._serial_ports))
+        self._link_kind.setEnabled(idle and disconnected)
+        self._baudrate.setEnabled(idle and disconnected)
+        self._discover.setEnabled(idle and disconnected and has_selected_port)
+        self._target.setEnabled(idle and snapshot.link_connected and bool(snapshot.candidates))
+        self._inspect.setEnabled(idle and has_target and is_usb)
+        self._replacement.setEnabled(idle and snapshot.onboard is not None and is_usb)
+        self._upload.setEnabled(idle and snapshot.replacement_confirmed and is_usb)
+        self._refresh.setEnabled(idle and has_target)
         self._reverify.setEnabled(
-            is_sik and snapshot.verification_state is ConnectedVerificationState.REVERIFY_REQUIRED
+            idle
+            and is_sik
+            and snapshot.verification_state is ConnectedVerificationState.REVERIFY_REQUIRED
         )
-        self._disconnect.setEnabled(snapshot.link_connected)
+        self._disconnect.setText("Cancel and close link" if self._busy else "Disconnect")
+        self._disconnect.setEnabled(snapshot.link_connected or self._busy)
         gated = self._interaction_unavailable_reason is not None
         self._interaction_gate.setText(self._interaction_unavailable_reason or "")
         self._interaction_gate.setVisible(gated)
         if gated:
             for control in (
-                self._discover_usb,
-                self._discover_sik,
+                self._refresh_ports,
+                self._serial_port,
+                self._link_kind,
+                self._baudrate,
+                self._discover,
                 self._target,
                 self._inspect,
                 self._replacement,
@@ -216,17 +292,57 @@ class ConnectedMissionWidget(QWidget):
         self._verification = QLabel()
         self._verification.setObjectName("connectedVerificationStatus")
         grid.addWidget(self._verification, 1, 1)
+        grid.addWidget(QLabel("Latest telemetry refresh"), 2, 0)
+        self._telemetry = QLabel()
+        self._telemetry.setObjectName("connectedTelemetryStatus")
+        self._telemetry.setWordWrap(True)
+        grid.addWidget(self._telemetry, 2, 1)
         root.addWidget(status)
 
+        serial = QFrame()
+        serial.setObjectName("serialSelectionPanel")
+        serial.setFrameShape(QFrame.Shape.StyledPanel)
+        serial_grid = QGridLayout(serial)
+        serial_grid.addWidget(QLabel("Available Windows serial ports"), 0, 0)
+        self._refresh_ports = QPushButton("Refresh ports")
+        self._refresh_ports.setObjectName("refreshSerialPortsButton")
+        serial_grid.addWidget(self._refresh_ports, 0, 1)
+        self._serial_port = QComboBox()
+        self._serial_port.setObjectName("serialPortSelection")
+        self._serial_port.setAccessibleName("Explicit serial port selection")
+        self._serial_port.addItem("Refresh ports to enumerate connected devices", None)
+        serial_grid.addWidget(self._serial_port, 1, 0, 1, 2)
+        serial_grid.addWidget(QLabel("Link kind"), 2, 0)
+        self._link_kind = QComboBox()
+        self._link_kind.setObjectName("serialLinkKindSelection")
+        self._link_kind.addItem("USB direct", TelemetryLinkKind.USB.value)
+        self._link_kind.addItem("SiK telemetry radio", TelemetryLinkKind.SIK.value)
+        serial_grid.addWidget(self._link_kind, 2, 1)
+        serial_grid.addWidget(QLabel("Baud"), 3, 0)
+        self._baudrate = QComboBox()
+        self._baudrate.setObjectName("serialBaudrateSelection")
+        self._baudrate.addItem("115200 (USB default)", USB_DEFAULT_BAUDRATE)
+        self._baudrate.addItem("57600 (SiK default)", SIK_DEFAULT_BAUDRATE)
+        serial_grid.addWidget(self._baudrate, 3, 1)
+        self._discover = QPushButton("Open selected port and discover vehicles")
+        self._discover.setObjectName("discoverSelectedLinkButton")
+        serial_grid.addWidget(self._discover, 4, 0, 1, 2)
+        self._serial_status = QLabel(
+            "Ports have not been enumerated. Refresh is explicit and does not open hardware."
+        )
+        self._serial_status.setObjectName("serialPortStatus")
+        self._serial_status.setWordWrap(True)
+        serial_grid.addWidget(self._serial_status, 5, 0, 1, 2)
+        self._operation_status = QLabel()
+        self._operation_status.setObjectName("connectedOperationStatus")
+        self._operation_status.setWordWrap(True)
+        serial_grid.addWidget(self._operation_status, 6, 0, 1, 2)
+        root.addWidget(serial)
+
         discovery = QHBoxLayout()
-        self._discover_usb = QPushButton("Discover USB")
-        self._discover_usb.setObjectName("discoverUsbButton")
-        self._discover_sik = QPushButton("Discover SiK")
-        self._discover_sik.setObjectName("discoverSikButton")
         self._target = QComboBox()
         self._target.setObjectName("connectedTargetSelection")
-        discovery.addWidget(self._discover_usb)
-        discovery.addWidget(self._discover_sik)
+        discovery.addWidget(QLabel("Discovered vehicle"))
         discovery.addWidget(self._target, 1)
         root.addLayout(discovery)
 
@@ -265,8 +381,14 @@ class ConnectedMissionWidget(QWidget):
         self._failure.setStyleSheet("color: #a52620; font-weight: 600;")
         root.addWidget(self._failure)
 
-        self._discover_usb.clicked.connect(lambda: self.intent_emitted.emit(DiscoverUsbRequested()))
-        self._discover_sik.clicked.connect(lambda: self.intent_emitted.emit(DiscoverSikRequested()))
+        self._refresh_ports.clicked.connect(
+            lambda: self.intent_emitted.emit(RefreshPortsRequested())
+        )
+        self._serial_port.currentIndexChanged.connect(
+            lambda _index: self.render_snapshot(self._snapshot)
+        )
+        self._link_kind.currentIndexChanged.connect(self._link_kind_changed)
+        self._discover.clicked.connect(self._discover_selected)
         self._target.activated.connect(self._select_target)
         self._inspect.clicked.connect(lambda: self.intent_emitted.emit(InspectMissionRequested()))
         self._replacement.toggled.connect(
@@ -278,6 +400,34 @@ class ConnectedMissionWidget(QWidget):
         self._refresh.clicked.connect(lambda: self.intent_emitted.emit(TelemetryRefreshRequested()))
         self._reverify.clicked.connect(lambda: self.intent_emitted.emit(ReverifyMissionRequested()))
         self._disconnect.clicked.connect(lambda: self.intent_emitted.emit(DisconnectRequested()))
+
+    def _link_kind_changed(self, _index: int) -> None:
+        kind = self._link_kind.currentData()
+        default = (
+            USB_DEFAULT_BAUDRATE if kind == TelemetryLinkKind.USB.value else SIK_DEFAULT_BAUDRATE
+        )
+        index = self._baudrate.findData(default)
+        if index >= 0:
+            self._baudrate.setCurrentIndex(index)
+        self.render_snapshot(self._snapshot)
+
+    def _discover_selected(self) -> None:
+        selected = self._serial_port.currentData()
+        kind = self._link_kind.currentData()
+        baudrate = self._baudrate.currentData()
+        if not isinstance(selected, SerialPortInfo):
+            self._serial_status.setText("Select one enumerated serial port before opening a link.")
+            return
+        if kind not in {TelemetryLinkKind.USB.value, TelemetryLinkKind.SIK.value} or not isinstance(
+            baudrate, int
+        ):
+            self._serial_status.setText("Select a valid link kind and baud before opening a link.")
+            return
+        if kind == TelemetryLinkKind.USB.value:
+            intent: ConnectedIntent = DiscoverUsbRequested(selected.device, baudrate)
+        else:
+            intent = DiscoverSikRequested(selected.device, baudrate)
+        self.intent_emitted.emit(intent)
 
     def _select_target(self, index: int) -> None:
         candidate = self._target.itemData(index)
@@ -303,6 +453,18 @@ def _verification_text(state: ConnectedVerificationState) -> str:
         ConnectedVerificationState.SIK_VERIFIED: "Same-vehicle SiK readback verified",
         ConnectedVerificationState.MISMATCH: "Mismatch — readiness blocked",
     }[state]
+
+
+def _telemetry_text(snapshot: ConnectedMissionSnapshot) -> str:
+    telemetry = snapshot.telemetry
+    if telemetry is None:
+        return "Not refreshed"
+    heartbeat = telemetry.heartbeat.value
+    if heartbeat is None:
+        return "Incomplete — no selected-vehicle heartbeat was received"
+    home = "Home available" if telemetry.home.value is not None else "Home unavailable"
+    armed = "ARMED" if heartbeat.armed else "disarmed"
+    return f"{heartbeat.mode_name} · {armed} · {home}"
 
 
 def _onboard_item_text(item: NativeMissionItem) -> str:

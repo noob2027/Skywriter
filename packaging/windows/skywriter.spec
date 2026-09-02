@@ -25,7 +25,10 @@ analysis = Analysis(
     pathex=[str(REPOSITORY_ROOT / "src")],
     binaries=[],
     datas=datas,
-    hiddenimports=["pymavlink.dialects.v20.ardupilotmega"],
+    hiddenimports=[
+        "pymavlink.dialects.v20.ardupilotmega",
+        "serial.tools.list_ports_windows",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -33,6 +36,21 @@ analysis = Analysis(
     noarchive=False,
     optimize=0,
 )
+
+# The Codex bundled workspace runtime places Poppler ahead of System32 on PATH.
+# QtCore links to Windows' system ICU by its unversioned name; allowing
+# PyInstaller to collect Poppler's private ICU build shadows that system DLL and
+# fails at runtime with a missing-procedure error. The accepted Windows payload
+# and the PySide wheel do not ship these Poppler binaries.
+POPPLER_ICU_SHADOWS = {"icudt78.dll", "icuuc.dll"}
+analysis.binaries = [
+    entry
+    for entry in analysis.binaries
+    if not (
+        Path(entry[0]).name.casefold() in POPPLER_ICU_SHADOWS
+        and "poppler" in {part.casefold() for part in Path(entry[1]).parts}
+    )
+]
 pyz = PYZ(analysis.pure)
 
 executable = EXE(

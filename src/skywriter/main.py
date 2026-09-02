@@ -12,7 +12,15 @@ from PySide6.QtCore import QCoreApplication, QTimer
 from PySide6.QtWidgets import QApplication
 
 from skywriter.config import DEFAULT_CONFIG
+from skywriter.infrastructure.serial_ports import (
+    SerialPortInfo,
+    StaticSerialPortEnumerator,
+)
 from skywriter.logging_config import configure_logging
+from skywriter.packaged_runtime_smoke import (
+    PACKAGED_SERIAL_IMPORT_SMOKE_ARGUMENT,
+    run_packaged_serial_import_smoke,
+)
 from skywriter.ui import MainWindow
 from skywriter.ui.map import MapReady, ProviderState, ProviderStatusChanged, TileProvider
 from skywriter.ui.map.rendering import (
@@ -86,7 +94,18 @@ def run(
             save_path_picker=lambda _initial: mission_path,
             load_path_picker=lambda: mission_path,
         )
-        window = MainWindow(mission_workspace=workspace)
+        window = MainWindow(
+            mission_workspace=workspace,
+            serial_port_enumerator=StaticSerialPortEnumerator(
+                (
+                    SerialPortInfo(
+                        "COM42",
+                        "SKYWriter installed-acceptance serial fixture",
+                        "Hardware-blocked test inventory",
+                    ),
+                )
+            ),
+        )
     else:
         acceptance_root = None
         window = MainWindow()
@@ -279,6 +298,9 @@ def main() -> int:
     if packaged_ui_acceptance:
         os.environ[PACKAGED_SMOKE_TEST_ENVIRONMENT] = "1"
         return run(arguments, packaged_ui_acceptance=True)
+    if PACKAGED_SERIAL_IMPORT_SMOKE_ARGUMENT in arguments:
+        os.environ[PACKAGED_SMOKE_TEST_ENVIRONMENT] = "1"
+        return run_packaged_serial_import_smoke(arguments)
     if PACKAGED_VISUAL_SMOKE_TEST_ARGUMENT in arguments:
         arguments.remove(PACKAGED_VISUAL_SMOKE_TEST_ARGUMENT)
         os.environ[PACKAGED_SMOKE_TEST_ENVIRONMENT] = "1"

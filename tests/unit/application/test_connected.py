@@ -47,6 +47,7 @@ class FakePort:
         self.onboard = MissionReadback(())
         self.telemetry = telemetry(target)
         self.uploaded: NativeMissionPackage | None = None
+        self.download_failure: ConnectedPortFailure | None = None
 
     def is_connected(self) -> bool:
         return self.connected
@@ -59,6 +60,8 @@ class FakePort:
     def download_mission(
         self, target: ConnectedTarget, *, cancellation: CancellationView
     ) -> MissionReadback:
+        if self.download_failure is not None:
+            raise self.download_failure
         return self.onboard
 
     def upload_and_verify(
@@ -229,7 +232,7 @@ def test_edit_disconnect_stale_and_wrong_vehicle_each_fail_closed() -> None:
 
     service, usb = usb_verified_service()
     service.disconnect()
-    assert service.snapshot.verification_state is ConnectedVerificationState.REVERIFY_REQUIRED
+    assert service.snapshot.verification_state.value == "reverify_required"
     stale = FakePort(
         TelemetryLinkKind.SIK,
         target(TelemetryLinkKind.SIK, observed_at_s=90.0),
@@ -300,3 +303,39 @@ def test_missing_home_and_cancelled_transfer_cannot_produce_verified() -> None:
     assert service.snapshot.failure is not None
     assert service.snapshot.failure.code is ConnectedFailureCode.CANCELLED
     assert service.snapshot.verification_state is ConnectedVerificationState.UNVERIFIED
+
+
+def test_protocol_failure_invalidates_prior_verified_readiness() -> None:
+    service, port = usb_verified_service()
+    assert service.snapshot.verification_state is ConnectedVerificationState.USB_VERIFIED
+    port.download_failure = ConnectedPortFailure(
+        ConnectedFailureCode.PROTOCOL,
+        "download-item: vehicle returned a malformed response",
+        source_code="malformed_message",
+    )
+
+    service.inspect_onboard(port, cancellation=NeverCancelled())
+
+    assert service.snapshot.failure is not None
+    assert service.snapshot.failure.code is ConnectedFailureCode.PROTOCOL
+    assert service.snapshot.verification_state.value == "reverify_required"
+    assert not service.snapshot.connected_ready(100.0)
+
+
+def test_changed_usb_onboard_inspection_clears_verified_state_immediately() -> None:
+    service, port = usb_verified_service()
+    assert service.snapshot.verification_state is ConnectedVerificationState.USB_VERIFIED
+    assert port.uploaded is not None
+    normalized = canonicalize_expected(port.uploaded)
+    port.onboard = MissionReadback((*normalized[:-1], replace(normalized[-1], altitude_m=1.0)))
+
+    observed = service.inspect_onboard(port, cancellation=NeverCancelled())
+
+    assert observed.verification_state is ConnectedVerificationState.MISMATCH
+    assert observed.failure is not None
+    assert observed.failure.code is ConnectedFailureCode.READBACK_MISMATCH
+    assert observed.failure.mismatches
+    assert observed.reconnect_comparison is not None
+    assert not observed.reconnect_comparison.verified
+    assert observed.onboard is port.onboard
+    assert not observed.replacement_confirmed
